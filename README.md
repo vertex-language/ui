@@ -19,7 +19,7 @@ Standard user interface library for the Vertex programming language, providing n
 ```swift
 package main
 
-import window
+import "ui/window"
 
 func main() async -> int32 {
     let win = try window.Open(title: "Vertex Window", width: 800, height: 600)

@@ -2,7 +2,7 @@
 // to end the program.
 package main
 
-import window
+import "ui/window"
 
 func describe(_ e: window.Event) -> string {
     switch e {

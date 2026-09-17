@@ -3,7 +3,7 @@
 // C clears the canvas; Escape or closing the window quits.
 package main
 
-import window
+import "ui/window"
 
 struct Canvas {
     var size: window.PixelSize

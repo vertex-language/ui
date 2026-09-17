@@ -5,7 +5,7 @@
 // a logged-in session -- a window needs a display.
 package main
 
-import window
+import "ui/window"
 
 var failures = 0
 
