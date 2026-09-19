@@ -9,12 +9,14 @@ let package = Package(
     products: [
         .library(name: "ui/window", targets: ["window"]),
         .library(name: "ui/draw", targets: ["draw"]),
+        .library(name: "ui/font", targets: ["font"]),
         .library(name: "ui/webview", targets: ["webview"]),
         .executable(name: "hello", targets: ["hello"]),
         .executable(name: "paint", targets: ["paint"]),
         .executable(name: "lifecycle", targets: ["lifecycle"]),
         .executable(name: "check-webview", targets: ["check-webview"]),
         .executable(name: "check-draw", targets: ["check-draw"]),
+        .executable(name: "check-font", targets: ["check-font"]),
         .executable(name: "browser", targets: ["browser"]),
     ],
     targets: [
@@ -39,6 +41,23 @@ let package = Package(
         .target(
             name: "draw",
             path: "draw"
+        ),
+        // The platform's fonts, as a C ABI.
+        .target(
+            name: "cfont",
+            path: "font/cfont",
+            publicHeadersPath: "include",
+            linkerSettings: [
+                .linkedFramework("Cocoa"),
+                .linkedFramework("CoreText"),
+            ]
+        ),
+        // Faces, shaping and glyph masks over cfont.
+        .target(
+            name: "font",
+            dependencies: ["cfont", "draw"],
+            path: "font",
+            exclude: ["cfont"]
         ),
         // The webview package: HTML/CSS layout & framebuffer rendering.
         .target(
@@ -75,6 +94,12 @@ let package = Package(
             name: "check-draw",
             dependencies: ["draw"],
             path: "tests/draw"
+        ),
+        // Fonts checked: metrics, shaping, masks.
+        .executableTarget(
+            name: "check-font",
+            dependencies: ["font", "draw"],
+            path: "tests/font"
         ),
         // Full desktop HTML & CSS browser example.
         .executableTarget(
