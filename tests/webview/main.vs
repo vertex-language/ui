@@ -138,8 +138,211 @@ func testStyles() {
     check(vw?.Width == .px(400), "vw against the resolver's 800px viewport")
 }
 
+// MARK: - Layout
+
+final class Laid {
+    let doc: html.Document
+    let root: webview.Box
+    let builder: webview.BoxTreeBuilder
+    init(doc: html.Document, root: webview.Box, builder: webview.BoxTreeBuilder) {
+        self.doc = doc
+        self.root = root
+        self.builder = builder
+    }
+    func box(_ id: string) -> webview.Box? {
+        guard let node = doc.ElementById(id) else { return nil }
+        return builder.byNode[node.Id]
+    }
+    /// A box's border-box rect relative to the viewport.
+    func rect(_ id: string) -> draw.Rect? {
+        guard let b = box(id) else { return nil }
+        var x = b.X
+        var y = b.Y
+        var p = b.Parent
+        while let parent = p {
+            x += parent.X
+            y += parent.Y
+            p = parent.Parent
+        }
+        return draw.Rect(x, y, b.Width, b.Height)
+    }
+}
+
+func layoutOf(_ source: string, width: float32 = 800, height: float32 = 600) -> Laid? {
+    let doc = html.Parse(source)
+    let resolver = webview.StyleResolver(ua: webview.UserAgentRules())
+    resolver.ViewportWidth = width
+    resolver.ViewportHeight = height
+    for style in doc.ElementsByTagName("style") {
+        resolver.Author.Add(css.Parse(style.InnerText()))
+    }
+    let builder = webview.BoxTreeBuilder(resolver: resolver, context: selector.MatchContext.none)
+    guard let root = builder.Build(doc) else { return nil }
+    let layout = webview.Layout(viewportWidth: width, viewportHeight: height)
+    layout.Run(root)
+    return Laid(doc: doc, root: root, builder: builder)
+}
+
+func near(_ a: float32, _ b: float32, _ tolerance: float32 = 0.5) -> bool {
+    let d = a - b
+    return d < tolerance && d > -tolerance
+}
+
+func testBlockLayout() {
+    print("Block layout")
+    guard let l = layoutOf("<body style='margin:0'><div id=a style='height:50px'></div><div id=b style='height:30px;margin:20px 0'></div><div id=c style='height:10px;margin-top:10px;width:50%'></div></body>") else { check(false, "layout"); return }
+    let a = l.rect("a")!
+    let b = l.rect("b")!
+    let c = l.rect("c")!
+    check(a == draw.Rect(0, 0, 800, 50), "the first block fills the width at the top (got \(a.X) \(a.Y) \(a.Width) \(a.Height))")
+    check(b.Y == 70 && b.Height == 30, "a margin separates siblings (got y \(b.Y))")
+    check(c.Y == 120, "adjacent margins collapse to the larger (got y \(c.Y))")
+    check(c.Width == 400, "width: 50% of the containing block")
+    let bodyBox = l.doc.ElementsByTagName("body")[0]
+    let body = l.builder.byNode[bodyBox.Id]!
+    check(near(body.Height, 130), "the body's height is its content's (got \(body.Height))")
+
+    guard let m = layoutOf("<body style='margin:0'><div id=outer style='padding:10px;background:red'><p id=p style='margin:16px 0'>x</p></div><div id=next></div></body>") else { check(false, "layout"); return }
+    let outer = m.rect("outer")!
+    let p = m.rect("p")!
+    check(p.Y == 26, "padding keeps a child's margin inside (got \(p.Y))")
+    check(near(outer.Height, 20 + 32 + p.Height), "the parent's height holds the child's margins (got \(outer.Height))")
+
+    guard let n = layoutOf("<body style='margin:0'><div id=outer><p id=p style='margin:16px 0'>x</p></div></body>") else { check(false, "layout"); return }
+    let outer2 = n.rect("outer")!
+    let p2 = n.rect("p")!
+    check(outer2.Y == 16 && p2.Y == 16, "a first child's margin collapses through its parent (got \(outer2.Y) \(p2.Y))")
+
+    guard let w = layoutOf("<body style='margin:0'><div id=a style='width:200px;margin:0 auto'></div><div id=b style='width:100px;padding:10px;border:5px solid;box-sizing:border-box'></div><div id=c style='width:100px;padding:10px;border:5px solid'></div><div id=d style='max-width:300px'></div><div id=e style='width:1000px;min-width:0'></div></body>") else { check(false, "layout"); return }
+    check(w.rect("a")!.X == 300, "margin: auto centres (got x \(w.rect("a")!.X))")
+    check(w.rect("b")!.Width == 100, "box-sizing: border-box keeps the width")
+    check(w.rect("c")!.Width == 130, "content-box adds padding and border")
+    check(w.rect("d")!.Width == 300, "max-width caps an auto width")
+    check(w.rect("e")!.Width == 1000, "a wider box overflows rather than shrinks")
+
+    guard let h = layoutOf("<html style='height:100%'><body style='margin:0;height:100%'><div id=half style='height:50%'></div></body></html>", width: 800, height: 600) else { check(false, "layout"); return }
+    check(h.rect("half")!.Height == 300, "percentage heights resolve against a definite chain (got \(h.rect("half")!.Height))")
+}
+
+func testInlineLayout() {
+    print("Inline layout")
+    guard let l = layoutOf("<body style='margin:0;font-size:16px;line-height:20px'><p id=p style='margin:0;width:200px'>one two three four five six seven eight nine ten eleven twelve</p></body>") else { check(false, "layout"); return }
+    let p = l.box("p")!
+    check(p.Lines.count > 2, "text wraps into several lines in 200px (got \(p.Lines.count))")
+    check(p.Lines.count > 0 && near(p.Lines[0].Height, 20), "each line is the line-height tall (got \(p.Lines.count > 0 ? p.Lines[0].Height : -1))")
+    check(near(p.Height, float32(p.Lines.count) * 20), "the paragraph is as tall as its lines")
+    var allFit = true
+    for line in p.Lines {
+        for f in line.Fragments {
+            if f.X + f.Width > 200.5 { allFit = false }
+        }
+    }
+    check(allFit, "no line is wider than the paragraph")
+    check(p.Lines.count > 1 && p.Lines[1].Fragments.count > 0 && p.Lines[1].Fragments[0].X == 0, "a later line starts at the left edge")
+
+    guard let c = layoutOf("<body style='margin:0'><p id=p style='margin:0;width:400px;text-align:center'>hi</p><p id=r style='margin:0;width:400px;text-align:right'>hi</p></body>") else { check(false, "layout"); return }
+    let cf = c.box("p")!.Lines[0].Fragments[0]
+    check(near(cf.X + cf.Width / 2, 200, 1), "text-align: center centres the line (got \(cf.X + cf.Width / 2))")
+    let rf = c.box("r")!.Lines[0].Fragments[0]
+    check(near(rf.X + rf.Width, 400, 1), "text-align: right ends the line at the right edge")
+
+    guard let s = layoutOf("<body style='margin:0;font-size:16px'><p id=p style='margin:0'>a <b>bold</b> <i>word</i> <span style='font-size:32px'>big</span> end</p></body>") else { check(false, "layout"); return }
+    let sp = s.box("p")!
+    check(sp.Lines.count == 1, "short mixed text is one line")
+    let line = sp.Lines[0]
+    var owners = 0
+    for f in line.Fragments { if f.Owner.Node?.TagName == "b" || f.Owner.Node?.TagName == "i" { owners += 1 } }
+    check(owners == 2, "inline elements own their text fragments (got \(owners))")
+    check(line.Height > 30, "a bigger font makes the line taller (got \(line.Height))")
+    var sameBaseline = true
+    var baselineY: float32 = -1
+    for f in line.Fragments {
+        let b = f.Y + f.Ascent
+        if baselineY < 0 { baselineY = b } else if !near(b, baselineY) { sameBaseline = false }
+    }
+    check(sameBaseline, "all fragments share the baseline")
+    check(line.Spans.count == 3, "each inline element gets a span on the line (got \(line.Spans.count))")
+
+    guard let w = layoutOf("<body style='margin:0'><p id=p style='margin:0;width:100px;white-space:nowrap'>one two three four five</p><pre id=pre style='margin:0'>a  b\nc</pre></body>") else { check(false, "layout"); return }
+    check(w.box("p")!.Lines.count == 1, "nowrap keeps one line")
+    check(w.box("pre")!.Lines.count == 2, "pre breaks at newlines (got \(w.box("pre")!.Lines.count))")
+    let preLine = w.box("pre")!.Lines[0]
+    check(preLine.Fragments.count == 1 && preLine.Fragments[0].Text == "a  b", "pre keeps its spaces (got \(preLine.Fragments.count) fragments)")
+
+    guard let br = layoutOf("<body style='margin:0'><p id=p style='margin:0'>a<br>b<br><br>c</p></body>") else { check(false, "layout"); return }
+    check(br.box("p")!.Lines.count == 4, "br breaks lines, an empty one too (got \(br.box("p")!.Lines.count))")
+
+    guard let ib = layoutOf("<body style='margin:0'><p id=p style='margin:0'>x <span id=ib style='display:inline-block;width:50px;height:40px'></span> y <img id=img width=20 height=10></p></body>") else { check(false, "layout"); return }
+    let ibr = ib.rect("ib")!
+    check(ibr.Width == 50 && ibr.Height == 40, "an inline-block takes its width and height")
+    let pl = ib.box("p")!.Lines[0]
+    check(pl.Height >= 40, "the line grows to hold the inline-block (got \(pl.Height))")
+    check(near(ibr.Y + 40, pl.Y + pl.Baseline), "an empty inline-block sits on the baseline (bottom \(ibr.Y + 40) baseline \(pl.Y + pl.Baseline))")
+    check(ib.rect("img")!.Width == 20 && ib.rect("img")!.Height == 10, "an image takes its attributes' size")
+
+    guard let li = layoutOf("<body style='margin:0'><ul id=ul><li id=a>one</li><li id=b>two</li></ul><ol><li id=c>x</li><li id=d>y</li></ol></body>") else { check(false, "layout"); return }
+    check(li.box("a")!.Marker == "•" && li.box("c")!.Marker == "1." && li.box("d")!.Marker == "2.", "list markers count (got \(li.box("d")!.Marker))")
+    check(li.rect("a")!.X == 40, "the ul's padding indents the items (got \(li.rect("a")!.X))")
+    let firstLine = li.box("a")!.Lines[0]
+    check(firstLine.Fragments.count == 2 && firstLine.Fragments[0].Kind == .marker && firstLine.Fragments[0].X < 0, "the marker sits outside the item's first line")
+
+    guard let e = layoutOf("<body style='margin:0'><div id=e></div><p id=blank>   </p></body>") else { check(false, "layout"); return }
+    check(e.rect("e")!.Height == 0 && e.rect("blank")!.Height == 0, "empty and blank blocks have no height")
+}
+
+func testFlexLayout() {
+    print("Flex layout")
+    guard let l = layoutOf("<body style='margin:0'><div id=f style='display:flex;width:600px;height:100px'><div id=a style='flex:1'></div><div id=b style='flex:2'></div><div id=c style='width:100px'></div></div></body>") else { check(false, "layout"); return }
+    let a = l.rect("a")!
+    let b = l.rect("b")!
+    let c = l.rect("c")!
+    check(near(a.Width, 166.67, 0.1) && near(b.Width, 333.33, 0.1) && c.Width == 100, "flex grows into the free space by factor (got \(a.Width) \(b.Width) \(c.Width))")
+    check(a.X == 0 && near(b.X, 166.67, 0.1) && near(c.X, 500, 0.1), "items sit side by side")
+    check(a.Height == 100, "align-items: stretch fills the height")
+
+    guard let j = layoutOf("<body style='margin:0'><div style='display:flex;width:600px;justify-content:space-between;align-items:center;height:100px'><div id=a style='width:100px;height:20px'></div><div id=b style='width:100px;height:40px'></div></div></body>") else { check(false, "layout"); return }
+    check(j.rect("a")!.X == 0 && j.rect("b")!.X == 500, "justify-content: space-between")
+    check(j.rect("a")!.Y == 40 && j.rect("b")!.Y == 30, "align-items: center (got \(j.rect("a")!.Y) \(j.rect("b")!.Y))")
+
+    guard let col = layoutOf("<body style='margin:0'><div id=col style='display:flex;flex-direction:column;gap:10px;width:200px'><div id=a style='height:20px'></div><div id=b style='height:30px'></div></div></body>") else { check(false, "layout"); return }
+    check(col.rect("b")!.Y == 30 && col.rect("col")!.Height == 60, "a column stacks with gaps and takes their height (got \(col.rect("b")!.Y) \(col.rect("col")!.Height))")
+    check(col.rect("a")!.Width == 200, "column items stretch across")
+
+    guard let wr = layoutOf("<body style='margin:0'><div id=w style='display:flex;flex-wrap:wrap;width:250px'><div id=a style='width:100px;height:10px'></div><div id=b style='width:100px;height:10px'></div><div id=c style='width:100px;height:10px'></div></div></body>") else { check(false, "layout"); return }
+    check(wr.rect("c")!.Y == 10 && wr.rect("c")!.X == 0 && wr.rect("w")!.Height == 20, "flex-wrap wraps onto a second line")
+
+    guard let sh = layoutOf("<body style='margin:0'><div style='display:flex;width:300px'><div id=a style='width:200px'></div><div id=b style='width:200px'></div></div></body>") else { check(false, "layout"); return }
+    check(sh.rect("a")!.Width == 150 && sh.rect("b")!.Width == 150, "items shrink to fit (got \(sh.rect("a")!.Width))")
+
+    guard let tx = layoutOf("<body style='margin:0'><div style='display:flex;width:400px'><div id=a>short</div><div id=b style='flex:1'>grows</div></div></body>") else { check(false, "layout"); return }
+    let ta = tx.rect("a")!
+    check(ta.Width > 20 && ta.Width < 60 && near(tx.rect("b")!.Width, 400 - ta.Width), "an item without flex takes its content width (got \(ta.Width))")
+}
+
+func testPositioning() {
+    print("Positioning")
+    guard let l = layoutOf("<body style='margin:0'><div id=rel style='position:relative;width:300px;height:200px;margin-left:50px'><div id=abs style='position:absolute;top:10px;right:20px;width:100px;height:30px'></div><div id=full style='position:absolute;left:0;right:0;bottom:0;height:10px'></div></div><div id=fixed style='position:fixed;left:5px;top:6px;width:7px;height:8px'></div></body>") else { check(false, "layout"); return }
+    let abs = l.rect("abs")!
+    check(abs.X == 230 && abs.Y == 10, "absolute against the positioned ancestor's insets (got \(abs.X) \(abs.Y))")
+    let full = l.rect("full")!
+    check(full.Width == 300 && full.Y == 190, "left and right both set stretch the box (got \(full.Width) \(full.Y))")
+    let fixed = l.rect("fixed")!
+    check(fixed.X == 5 && fixed.Y == 6, "fixed against the viewport")
+    let rel = l.box("rel")!
+    check(rel.Positioned.count == 2, "the positioned ancestor keeps its positioned boxes")
+
+    guard let r = layoutOf("<body style='margin:0'><div id=a style='height:10px'></div><div id=b style='position:relative;top:5px;left:8px;height:10px'></div><div id=c style='height:10px'></div></body>") else { check(false, "layout"); return }
+    let b = r.box("b")!
+    check(b.OffsetX == 8 && b.OffsetY == 5, "relative offsets are kept aside (got \(b.OffsetX) \(b.OffsetY))")
+    check(r.rect("c")!.Y == 20, "relative positioning leaves the flow alone")
+}
+
 func main() -> int32 {
     testStyles()
+    testBlockLayout()
+    testInlineLayout()
+    testFlexLayout()
+    testPositioning()
     if failures == 0 {
         print("ALL WEBVIEW CHECKS PASSED")
         return 0
