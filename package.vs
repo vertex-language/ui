@@ -1,4 +1,4 @@
-// The 'ui' package: a native window for Vertex.
+// The 'ui' package: native windows and webviews for Vertex.
 import PackageDescription
 
 let package = Package(
@@ -8,9 +8,12 @@ let package = Package(
     ],
     products: [
         .library(name: "ui/window", targets: ["window"]),
+        .library(name: "ui/webview", targets: ["webview"]),
         .executable(name: "hello", targets: ["hello"]),
         .executable(name: "paint", targets: ["paint"]),
         .executable(name: "lifecycle", targets: ["lifecycle"]),
+        .executable(name: "check-webview", targets: ["check-webview"]),
+        .executable(name: "browser", targets: ["browser"]),
     ],
     targets: [
         // The platform's window system, as a C ABI.
@@ -30,6 +33,12 @@ let package = Package(
             path: "window",
             exclude: ["cwindow"]
         ),
+        // The webview package: HTML/CSS layout & framebuffer rendering.
+        .target(
+            name: "webview",
+            dependencies: ["window", "cwindow"],
+            path: "webview"
+        ),
         // A window that prints what happens to it.
         .executableTarget(
             name: "hello",
@@ -47,6 +56,18 @@ let package = Package(
             name: "lifecycle",
             dependencies: ["window"],
             path: "tests/lifecycle"
+        ),
+        // Automated unit tests for HTML/CSS webview.
+        .executableTarget(
+            name: "check-webview",
+            dependencies: ["window", "webview"],
+            path: "tests/webview"
+        ),
+        // Full desktop HTML & CSS browser example.
+        .executableTarget(
+            name: "browser",
+            dependencies: ["window", "webview"],
+            path: "examples/browser"
         ),
     ]
 )

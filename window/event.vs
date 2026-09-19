@@ -51,6 +51,17 @@ public struct KeyEvent {
     public let Modifiers: Modifiers
     /// Whether this is the key repeating while it is held.
     public let Repeat: bool
+
+    public init(Code: KeyCode, Key: string, Modifiers: Modifiers, Repeat: bool) {
+        self.Code = Code
+        self.Key = Key
+        self.Modifiers = Modifiers
+        self.Repeat = Repeat
+    }
+}
+
+func defaultModifiers() -> Modifiers {
+    return Modifiers()
 }
 
 /// A mouse, a pen or a finger.
@@ -61,6 +72,20 @@ public struct Pointer {
     /// 0 to 1 for a device that measures it, and 0 for one that does not.
     public let Pressure: float32
     public let Modifiers: Modifiers
+
+    public init(Position: Point, Kind: PointerKind, Pressure: float32, Modifiers: Modifiers) {
+        self.Position = Position
+        self.Kind = Kind
+        self.Pressure = Pressure
+        self.Modifiers = Modifiers
+    }
+
+    public init(Position: Point) {
+        self.Position = Position
+        self.Kind = PointerKind.mouse
+        self.Pressure = 0
+        self.Modifiers = defaultModifiers()
+    }
 }
 
 public enum PointerKind {
@@ -83,6 +108,18 @@ public struct Scroll {
     /// A trackpad scrolls precisely; a wheel scrolls in lines.
     public let Precise: bool
     public let Modifiers: Modifiers
+
+    public init(Delta: Point, Precise: bool, Modifiers: Modifiers) {
+        self.Delta = Delta
+        self.Precise = Precise
+        self.Modifiers = Modifiers
+    }
+
+    public init(Delta: Point, Precise: bool) {
+        self.Delta = Delta
+        self.Precise = Precise
+        self.Modifiers = defaultModifiers()
+    }
 }
 
 /// When a frame will be shown.

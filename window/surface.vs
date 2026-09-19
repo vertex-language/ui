@@ -43,3 +43,43 @@ public enum SurfaceKind {
 public func (s: borrowing Surface) RawParts() -> (kind: SurfaceKind, window: uint64, view: uint64) {
     return (kind: .appKit, window: cwindow_native_window(s.window), view: cwindow_native_view(s.window))
 }
+
+/// Copies a rectangular block of premultiplied RGBA8 pixels from `source` into `destination`.
+/// `origin` specifies the top-left offset in destination pixels where the source will be placed.
+public func Blit(
+    source: borrowing [uint8],
+    sourceSize: PixelSize,
+    destination: inout [uint8],
+    destinationSize: PixelSize,
+    at origin: Point,
+    scale: float32 = 1.0
+) {
+    let destX = int(origin.X * scale)
+    let destY = int(origin.Y * scale)
+    let srcW = int(sourceSize.Width)
+    let srcH = int(sourceSize.Height)
+    let dstW = int(destinationSize.Width)
+    let dstH = int(destinationSize.Height)
+
+    var row = 0
+    while row < srcH {
+        let y = destY + row
+        if y >= 0 && y < dstH {
+            var col = 0
+            while col < srcW {
+                let x = destX + col
+                if x >= 0 && x < dstW {
+                    let srcIdx = (row * srcW + col) * 4
+                    let dstIdx = (y * dstW + x) * 4
+                    destination[dstIdx] = source[srcIdx]
+                    destination[dstIdx + 1] = source[srcIdx + 1]
+                    destination[dstIdx + 2] = source[srcIdx + 2]
+                    destination[dstIdx + 3] = source[srcIdx + 3]
+                }
+                col += 1
+            }
+        }
+        row += 1
+    }
+}
+

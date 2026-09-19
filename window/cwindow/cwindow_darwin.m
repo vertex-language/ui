@@ -8,6 +8,7 @@
 // descriptor some task waits on becoming ready, or the next deadline.
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/QuartzCore.h>
+#import <CoreText/CoreText.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
@@ -742,6 +743,20 @@ void cwindow_set_fullscreen(int32_t window, int32_t fullscreen) {
         [w.window toggleFullScreen:nil];
 }
 
+void cwindow_set_cursor(int32_t window, int32_t cursor) {
+    CWWindow* w = windowOf(window);
+    if (w == nil)
+        return;
+    switch (cursor) {
+    case 1: [[NSCursor pointingHandCursor] set]; break;
+    case 2: [[NSCursor IBeamCursor] set]; break;
+    case 3: [[NSCursor crosshairCursor] set]; break;
+    case 4: [[NSCursor resizeLeftRightCursor] set]; break;
+    case 5: [[NSCursor resizeUpDownCursor] set]; break;
+    default: [[NSCursor arrowCursor] set]; break;
+    }
+}
+
 void cwindow_request_frame(int32_t window) {
     CWWindow* w = windowOf(window);
     if (w == nil)
@@ -797,3 +812,157 @@ uint64_t cwindow_native_view(int32_t window) {
     CWWindow* w = windowOf(window);
     return w != nil ? (uint64_t)(uintptr_t)(__bridge void*)w.view : 0;
 }
+
+static NSFont* fontForStyle(double fontSize, int32_t bold, int32_t italic) {
+    NSFont* font = [NSFont systemFontOfSize:fontSize];
+    NSFontDescriptorSymbolicTraits traits = 0;
+    if (bold) traits |= NSFontDescriptorTraitBold;
+    if (italic) traits |= NSFontDescriptorTraitItalic;
+    if (traits != 0) {
+        NSFontDescriptor* desc = [[font fontDescriptor] fontDescriptorWithSymbolicTraits:traits];
+        if (desc) {
+            NSFont* styled = [NSFont fontWithDescriptor:desc size:fontSize];
+            if (styled) font = styled;
+        }
+    }
+    return font;
+}
+
+void cwindow_measure_text(const char* text, double font_size, int32_t bold, int32_t italic, double* out_w, double* out_h) {
+    if (text == NULL || text[0] == '\0') {
+        if (out_w) *out_w = 0.0;
+        if (out_h) *out_h = font_size * 1.25;
+        return;
+    }
+    @autoreleasepool {
+        NSString* str = [NSString stringWithUTF8String:text];
+        if (str == nil) {
+            if (out_w) *out_w = 0.0;
+            if (out_h) *out_h = font_size * 1.25;
+            return;
+        }
+        NSFont* font = fontForStyle(font_size, bold, italic);
+        NSDictionary* attrs = @{ NSFontAttributeName: font };
+        NSAttributedString* attrStr = [[NSAttributedString alloc] initWithString:str attributes:attrs];
+        CTLineRef line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)attrStr);
+        CGFloat ascent = 0, descent = 0, leading = 0;
+        double width = (double)CTLineGetTypographicBounds(line, &ascent, &descent, &leading);
+        CFRelease(line);
+
+        if (out_w) *out_w = width;
+        if (out_h) *out_h = (ascent + descent > 0) ? (double)(ascent + descent + leading) : (font_size * 1.25);
+    }
+}
+
+void cwindow_draw_text(uint8_t* rgba, int32_t buf_w, int32_t buf_h,
+                       int32_t x, int32_t y, const char* text,
+                       double font_size, int32_t bold, int32_t italic,
+                       uint8_t r, uint8_t g, uint8_t b, uint8_t a,
+                       double scale,
+                       int32_t clip_x, int32_t clip_y, int32_t clip_w, int32_t clip_h) {
+    if (rgba == NULL || text == NULL || text[0] == '\0' || buf_w <= 0 || buf_h <= 0 || a == 0) return;
+
+    @autoreleasepool {
+        NSString* str = [NSString stringWithUTF8String:text];
+        if (str == nil) return;
+
+        double scaledFontSize = font_size * scale;
+        NSFont* font = fontForStyle(scaledFontSize, bold, italic);
+        NSColor* color = [NSColor colorWithSRGBRed:(double)r / 255.0 green:(double)g / 255.0 blue:(double)b / 255.0 alpha:(double)a / 255.0];
+        NSDictionary* attrs = @{
+            NSFontAttributeName: font,
+            NSForegroundColorAttributeName: color
+        };
+        NSAttributedString* attrStr = [[NSAttributedString alloc] initWithString:str attributes:attrs];
+        CTLineRef line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)attrStr);
+
+        CGFloat ascent = 0, descent = 0, leading = 0;
+        CTLineGetTypographicBounds(line, &ascent, &descent, &leading);
+
+        CGColorSpaceRef colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+        CGContextRef ctx = CGBitmapContextCreate(
+            rgba,
+            (size_t)buf_w,
+            (size_t)buf_h,
+            8,
+            (size_t)buf_w * 4,
+            colorSpace,
+            (CGBitmapInfo)kCGImageAlphaPremultipliedLast
+        );
+        CGColorSpaceRelease(colorSpace);
+
+        if (ctx) {
+            CGContextSaveGState(ctx);
+            if (clip_w > 0 && clip_h > 0) {
+                CGRect clipRect = CGRectMake(clip_x, buf_h - (clip_y + clip_h), clip_w, clip_h);
+                CGContextClipToRect(ctx, clipRect);
+            }
+
+            CGContextSetTextMatrix(ctx, CGAffineTransformIdentity);
+            CGFloat baselineY = (CGFloat)buf_h - ((CGFloat)y + ascent);
+            CGContextSetTextPosition(ctx, (CGFloat)x, baselineY);
+            CTLineDraw(line, ctx);
+
+            CGContextRestoreGState(ctx);
+            CGContextRelease(ctx);
+        }
+        CFRelease(line);
+    }
+}
+
+void cwindow_fill_rect(uint8_t* rgba, int32_t buf_w, int32_t buf_h,
+                       int32_t x, int32_t y, int32_t w, int32_t h,
+                       uint8_t r, uint8_t g, uint8_t b, uint8_t a,
+                       int32_t clip_x, int32_t clip_y, int32_t clip_w, int32_t clip_h) {
+    if (rgba == NULL || buf_w <= 0 || buf_h <= 0 || w <= 0 || h <= 0 || a == 0) return;
+
+    int32_t x0 = x > clip_x ? x : clip_x;
+    if (x0 < 0) x0 = 0;
+    int32_t y0 = y > clip_y ? y : clip_y;
+    if (y0 < 0) y0 = 0;
+
+    int32_t right1 = x + w;
+    int32_t right2 = clip_x + clip_w;
+    int32_t right = right1 < right2 ? right1 : right2;
+    int32_t x1 = right < buf_w ? right : buf_w;
+
+    int32_t bot1 = y + h;
+    int32_t bot2 = clip_y + clip_h;
+    int32_t bot = bot1 < bot2 ? bot1 : bot2;
+    int32_t y1 = bot < buf_h ? bot : buf_h;
+
+    if (x0 >= x1 || y0 >= y1) return;
+
+    if (a == 255) {
+        // Fast 32-bit SIMD vectorized row write
+        uint32_t pixel = ((uint32_t)255 << 24) | ((uint32_t)b << 16) | ((uint32_t)g << 8) | (uint32_t)r;
+        int32_t row_len = x1 - x0;
+        for (int32_t py = y0; py < y1; py++) {
+            uint32_t* dst = (uint32_t*)rgba + (py * buf_w + x0);
+            for (int32_t px = 0; px < row_len; px++) {
+                dst[px] = pixel;
+            }
+        }
+    } else {
+        uint32_t alpha = a;
+        uint32_t invAlpha = 255 - alpha;
+        uint32_t cr = (uint32_t)r * alpha;
+        uint32_t cg = (uint32_t)g * alpha;
+        uint32_t cb = (uint32_t)b * alpha;
+
+        for (int32_t py = y0; py < y1; py++) {
+            uint8_t* dst = rgba + (py * buf_w + x0) * 4;
+            for (int32_t px = x0; px < x1; px++) {
+                uint32_t dr = dst[0];
+                uint32_t dg = dst[1];
+                uint32_t db = dst[2];
+                dst[0] = (uint8_t)((cr + dr * invAlpha) / 255);
+                dst[1] = (uint8_t)((cg + dg * invAlpha) / 255);
+                dst[2] = (uint8_t)((cb + db * invAlpha) / 255);
+                dst[3] = 255;
+                dst += 4;
+            }
+        }
+    }
+}
+

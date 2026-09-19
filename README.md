@@ -10,29 +10,57 @@ Standard user interface library for the Vertex programming language, providing n
 
 ## Packages
 
-- **`ui/window`**: Native desktop windows (`window.Open`, `window.Window`, `window.Event`, `window.PixelBuffer`).
+- **`ui/window`**: Native desktop windows with async event queue and Cocoa OS integration (`window.Create`, `window.Window`, `window.Surface`, `window.SetCursor`).
+- **`ui/webview`**: Pure Vertex software HTML/CSS rendering engine, block & inline layout, bitmap font rasterizer, hit testing, and CPU framebuffer painter (`webview.WebView`, `webview.Config`, `webview.Color`).
 
 ---
 
 ## Quick Start
 
-```swift
+### Embedded WebView
+
+```vertex
 package main
 
 import "ui/window"
+import "ui/webview"
 
 func main() async -> int32 {
-    let win = try window.Open(title: "Vertex Window", width: 800, height: 600)
-    print("Window opened: \(win.Title) (\(win.Width)x\(win.Height))")
+    let win = try window.Create(title: "Vertex Browser", size: window.Size(800, 600))
+    let surface = win.Surface()
 
-    for await event in win.Events() {
+    let view = webview.WebView()
+    view.SetBounds(origin: window.Point(0, 0), size: window.Size(800, 600))
+    view.LoadHTML("""
+    <html>
+      <body style="margin: 20px; font-size: 16px; color: #24292f;">
+        <h1 style="color: #0969da;">Hello from Vertex WebView!</h1>
+        <p>Pure software HTML and CSS rendering engine in 100% pure Vertex.</p>
+        <p><a href="https://vertex-lang.org">Clickable Hyperlink</a></p>
+      </body>
+    </html>
+    """)
+
+    view.OnNavigate { url in
+        print("Navigated to: \(url)")
+    }
+
+    var pixels = [uint8](repeating: 255, count: 800 * 600 * 4)
+    win.RequestFrame()
+
+    while let event = await win.WaitEvent() {
         switch event {
-        case .key(let key, let down):
-            if down && key == 53 { // ESC
-                win.Close()
-            }
         case .closeRequested:
             win.Close()
+            return 0
+        case .pointerMoved(_), .pointerDown(_, _), .scrolled(_):
+            _ = view.Handle(event)
+            if let cur = view.DesiredCursor() { win.SetCursor(cur) }
+            win.RequestFrame()
+        case .frame(_):
+            let scale = win.ScaleFactor()
+            view.Draw(into: &pixels, canvasSize: win.PixelSize(), scale: scale)
+            try? surface.Present(pixels, size: win.PixelSize())
         default:
             break
         }
@@ -48,13 +76,19 @@ func main() async -> int32 {
 Execute examples or tests directly with `vsc`:
 
 ```bash
+# Run full desktop HTML & CSS web browser example
+vsc run browser
+
+# Run automated headless webview test suite
+vsc run check-webview
+
 # Run a window that prints lifecycle events
 vsc run hello
 
 # Run 60fps pixel buffer rendering with mouse drawing
 vsc run paint
 
-# Run headless/window lifecycle test
+# Run native window lifecycle verification test
 vsc run lifecycle
 ```
 

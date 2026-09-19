@@ -101,12 +101,28 @@ void    cwindow_set_size(int32_t window, double width, double height);
 void    cwindow_set_min_size(int32_t window, double width, double height);
 void    cwindow_set_visible(int32_t window, int32_t visible);
 void    cwindow_set_fullscreen(int32_t window, int32_t fullscreen);
+void    cwindow_set_cursor(int32_t window, int32_t cursor);
 
 // Asks for one CWINDOW_EVENT_FRAME, at the display's next refresh.
 void    cwindow_request_frame(int32_t window);
 
 // Shows width x height RGBA8 pixels, top row first.
 int32_t cwindow_present(int32_t window, const uint8_t* rgba, int32_t width, int32_t height);
+
+// Typography & text rasterization via platform CoreText / CoreGraphics.
+void    cwindow_measure_text(const char* text, double font_size, int32_t bold, int32_t italic, double* out_w, double* out_h);
+void    cwindow_draw_text(uint8_t* rgba, int32_t buf_w, int32_t buf_h,
+                          int32_t x, int32_t y, const char* text,
+                          double font_size, int32_t bold, int32_t italic,
+                          uint8_t r, uint8_t g, uint8_t b, uint8_t a,
+                          double scale,
+                          int32_t clip_x, int32_t clip_y, int32_t clip_w, int32_t clip_h);
+
+// High-performance SIMD rectangle fill into RGBA8 buffer.
+void    cwindow_fill_rect(uint8_t* rgba, int32_t buf_w, int32_t buf_h,
+                          int32_t x, int32_t y, int32_t w, int32_t h,
+                          uint8_t r, uint8_t g, uint8_t b, uint8_t a,
+                          int32_t clip_x, int32_t clip_y, int32_t clip_w, int32_t clip_h);
 
 // The native objects, for a renderer binding its own swapchain.
 uint64_t cwindow_native_window(int32_t window);
@@ -115,3 +131,4 @@ uint64_t cwindow_native_view(int32_t window);
 #ifdef __cplusplus
 }
 #endif
+

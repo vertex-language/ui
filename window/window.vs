@@ -149,6 +149,30 @@ public func (w: borrowing Window) SetFullscreen(_ fullscreen: bool) {
     cwindow_set_fullscreen(w.Id, fullscreen ? 1 : 0)
 }
 
+/// The system mouse cursor shape.
+public enum Cursor: Equatable {
+    case arrow
+    case pointingHand
+    case iBeam
+    case crosshair
+    case resizeLeftRight
+    case resizeUpDown
+}
+
+/// Changes the mouse cursor shape when hovered over this window.
+public func (w: borrowing Window) SetCursor(_ cursor: Cursor) {
+    var c: int32 = 0
+    switch cursor {
+    case .arrow: c = 0
+    case .pointingHand: c = 1
+    case .iBeam: c = 2
+    case .crosshair: c = 3
+    case .resizeLeftRight: c = 4
+    case .resizeUpDown: c = 5
+    }
+    cwindow_set_cursor(w.Id, c)
+}
+
 /// Closes the window. It is consumed: nothing can be asked of it afterwards,
 /// and a task waiting on it gets nil.
 public func (w: consuming Window) Close() {
