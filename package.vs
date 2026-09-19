@@ -8,11 +8,13 @@ let package = Package(
     ],
     products: [
         .library(name: "ui/window", targets: ["window"]),
+        .library(name: "ui/draw", targets: ["draw"]),
         .library(name: "ui/webview", targets: ["webview"]),
         .executable(name: "hello", targets: ["hello"]),
         .executable(name: "paint", targets: ["paint"]),
         .executable(name: "lifecycle", targets: ["lifecycle"]),
         .executable(name: "check-webview", targets: ["check-webview"]),
+        .executable(name: "check-draw", targets: ["check-draw"]),
         .executable(name: "browser", targets: ["browser"]),
     ],
     targets: [
@@ -32,6 +34,11 @@ let package = Package(
             dependencies: ["cwindow"],
             path: "window",
             exclude: ["cwindow"]
+        ),
+        // Software drawing into RGBA pixels: fills, curves, masks, images.
+        .target(
+            name: "draw",
+            path: "draw"
         ),
         // The webview package: HTML/CSS layout & framebuffer rendering.
         .target(
@@ -62,6 +69,12 @@ let package = Package(
             name: "check-webview",
             dependencies: ["window", "webview"],
             path: "tests/webview"
+        ),
+        // The rasterizer checked pixel by pixel.
+        .executableTarget(
+            name: "check-draw",
+            dependencies: ["draw"],
+            path: "tests/draw"
         ),
         // Full desktop HTML & CSS browser example.
         .executableTarget(
