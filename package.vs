@@ -62,7 +62,7 @@ let package = Package(
         // The webview package: HTML/CSS layout & framebuffer rendering.
         .target(
             name: "webview",
-            dependencies: ["window", "cwindow"],
+            dependencies: ["window", "draw", "font"],
             path: "webview"
         ),
         // A window that prints what happens to it.
@@ -86,7 +86,7 @@ let package = Package(
         // Automated unit tests for HTML/CSS webview.
         .executableTarget(
             name: "check-webview",
-            dependencies: ["window", "webview"],
+            dependencies: ["window", "webview", "draw", "font"],
             path: "tests/webview"
         ),
         // The rasterizer checked pixel by pixel.
@@ -104,7 +104,7 @@ let package = Package(
         // Full desktop HTML & CSS browser example.
         .executableTarget(
             name: "browser",
-            dependencies: ["window", "webview"],
+            dependencies: ["window", "webview", "draw", "font"],
             path: "examples/browser"
         ),
     ]
