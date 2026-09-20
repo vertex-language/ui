@@ -25,12 +25,15 @@ func eventText(_ id: int32) -> string {
 
 // pointerOf is the current event's pointer.
 func pointerOf(_ id: int32) -> Pointer {
-    let kind: PointerKind = cwindow_event_flags(id) == 1 ? .pen : .mouse
+    let flags = cwindow_event_flags(id)
+    let kind: PointerKind = (flags & 255) == 1 ? .pen : .mouse
+    let clicks = flags >> 8
     return Pointer(
         Position: Point(float32(cwindow_event_x(id)), float32(cwindow_event_y(id))),
         Kind: kind,
         Pressure: float32(cwindow_event_pressure(id)),
-        Modifiers: modifiersFrom(cwindow_event_modifiers(id)))
+        Modifiers: modifiersFrom(cwindow_event_modifiers(id)),
+        Clicks: clicks > 0 ? clicks : 1)
 }
 
 // buttonOf is the current event's button.

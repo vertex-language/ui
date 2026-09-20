@@ -279,6 +279,9 @@ static void pushKind(CWWindow* w, int32_t kind, int32_t code, double x, double y
     e.modifiers = modifiersFor([event modifierFlags]);
     e.flags = [event subtype] == NSEventSubtypeTabletPoint ? 1 : 0;
     e.pressure = e.flags == 1 ? [event pressure] : 0;
+    // The click count rides above the pointer kind: 2 for a double click.
+    if (kind == CWINDOW_EVENT_POINTER_DOWN || kind == CWINDOW_EVENT_POINTER_UP)
+        e.flags |= ((int32_t)[event clickCount]) << 8;
     push(self.owner, e);
 }
 

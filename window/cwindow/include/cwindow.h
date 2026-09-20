@@ -46,7 +46,7 @@ enum {
     CWINDOW_EVENT_RESIZED            = 3,   // x, y: size in points
     CWINDOW_EVENT_MOVED              = 4,   // x, y: position in points
     CWINDOW_EVENT_SCALE_CHANGED      = 5,   // x: scale factor
-    CWINDOW_EVENT_POINTER_MOVED      = 6,   // x, y; pressure; flags: pointer kind
+    CWINDOW_EVENT_POINTER_MOVED      = 6,   // x, y; pressure; flags: pointer kind, click count << 8 on down and up
     CWINDOW_EVENT_POINTER_DOWN       = 7,   // as moved; code: button
     CWINDOW_EVENT_POINTER_UP         = 8,   // as moved; code: button
     CWINDOW_EVENT_POINTER_LEFT       = 9,

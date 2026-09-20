@@ -72,19 +72,24 @@ public struct Pointer {
     /// 0 to 1 for a device that measures it, and 0 for one that does not.
     public let Pressure: float32
     public let Modifiers: Modifiers
+    /// How many presses in quick succession this is part of, on a press
+    /// or release: 2 for a double click, 3 for a triple. 1 otherwise.
+    public let Clicks: int32
 
-    public init(Position: Point, Kind: PointerKind, Pressure: float32, Modifiers: Modifiers) {
+    public init(Position: Point, Kind: PointerKind, Pressure: float32, Modifiers: Modifiers, Clicks: int32 = 1) {
         self.Position = Position
         self.Kind = Kind
         self.Pressure = Pressure
         self.Modifiers = Modifiers
+        self.Clicks = Clicks
     }
 
-    public init(Position: Point) {
+    public init(Position: Point, Clicks: int32 = 1) {
         self.Position = Position
         self.Kind = PointerKind.mouse
         self.Pressure = 0
         self.Modifiers = defaultModifiers()
+        self.Clicks = Clicks
     }
 }
 

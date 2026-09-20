@@ -14,7 +14,7 @@ extension WebView {
             return pointerMoved(p.Position)
         case .pointerDown(let p, let button):
             if !isInside(p.Position) { return .ignored }
-            if button == .primary { return pointerDown(p.Position) }
+            if button == .primary { return pointerDown(p.Position, clicks: p.Clicks) }
             return .handled
         case .pointerUp(let p, let button):
             if button == .primary { return pointerUp(p.Position) }
@@ -113,7 +113,7 @@ extension WebView {
         stateChanged()
     }
 
-    func pointerDown(_ p: window.Point) -> EventResult {
+    func pointerDown(_ p: window.Point, clicks: int32 = 1) -> EventResult {
         update()
         ClearSelection()
         guard let hit = hitAt(p) else {
@@ -124,8 +124,29 @@ extension WebView {
         pressed = node
         stateChanged()
 
-        // A press on text starts a selection, unless it is a link or a control.
+        // A press on text starts a selection, unless it is a link or a
+        // control; a double click takes the word, a triple the paragraph.
         if let tb = hit.TextBox, let textNode = tb.Node, controlAncestor(node) == nil && linkAncestor(node) == nil {
+            if clicks >= 3 {
+                selectBlock(of: tb)
+                return .handled
+            }
+            if clicks == 2 {
+                let b = [uint8](tb.Text.utf8)
+                var start = min(hit.TextOffset, b.count)
+                var end = start
+                if start < b.count && isSpaceByte(b[start]) {
+                    while start > 0 && isSpaceByte(b[start - 1]) { start -= 1 }
+                    while end < b.count && isSpaceByte(b[end]) { end += 1 }
+                } else {
+                    while start > 0 && !isSpaceByte(b[start - 1]) { start -= 1 }
+                    while end < b.count && !isSpaceByte(b[end]) { end += 1 }
+                }
+                selectionAnchor = TextPosition(Node: textNode, Offset: start)
+                selectionFocus = TextPosition(Node: textNode, Offset: end)
+                needsPaint = true
+                return .handled
+            }
             selectionAnchor = TextPosition(Node: textNode, Offset: hit.TextOffset)
             selectionFocus = selectionAnchor
             selecting = true

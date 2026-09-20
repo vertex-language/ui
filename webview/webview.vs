@@ -598,6 +598,19 @@ public final class WebView {
         needsPaint = true
     }
 
+    /// Selects the text of the block a text box is in.
+    func selectBlock(of text: Box) {
+        var block: Box = text
+        while let p = block.Parent, block.Kind != .block && block.Kind != .inlineBlock { block = p }
+        var first: Box? = nil
+        var last: Box? = nil
+        findTextBoxes(block, &first, &last)
+        guard let f = first, let l = last, let fn = f.Node, let ln = l.Node else { return }
+        selectionAnchor = TextPosition(Node: fn, Offset: 0)
+        selectionFocus = TextPosition(Node: ln, Offset: l.Text.utf8.count)
+        needsPaint = true
+    }
+
     func findTextBoxes(_ box: Box, _ first: inout Box?, _ last: inout Box?) {
         if box.Kind == .text {
             if !isBlank(box.Text) {

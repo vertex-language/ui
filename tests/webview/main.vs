@@ -607,6 +607,16 @@ func testView() {
     _ = view.Handle(.pointerMoved(window.Pointer(Position: window.Point(10, 30))))
     check(view.DesiredCursor() == window.Cursor.arrow, "off the link the cursor is an arrow")
 
+    // A double click on "Hello" selects the word; a triple the paragraph.
+    let wordAt = window.Point(12, p.Y + p.Height / 2 + 20)
+    _ = view.Handle(.pointerDown(window.Pointer(Position: wordAt, Clicks: 2), .primary))
+    _ = view.Handle(.pointerUp(window.Pointer(Position: wordAt, Clicks: 2), .primary))
+    check(view.SelectedText() == "Hello", "a double click selects the word (got '\(view.SelectedText())')")
+    _ = view.Handle(.pointerDown(window.Pointer(Position: wordAt, Clicks: 3), .primary))
+    _ = view.Handle(.pointerUp(window.Pointer(Position: wordAt, Clicks: 3), .primary))
+    check(view.SelectedText() == "Hello link", "a triple click selects the paragraph (got '\(view.SelectedText())')")
+    view.ClearSelection()
+
     // Typing in the field.
     let field = view.QuerySelector("#field")!
     let fieldBox = view.BoxFor(field)!
