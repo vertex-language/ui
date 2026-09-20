@@ -273,6 +273,7 @@ public final class WebView {
         if needsStyle {
             builder.Images = images
             builder.Values = values
+            context.Reset()
             context.Hovered = hovered
             context.Focused = focused
             context.Active = pressed

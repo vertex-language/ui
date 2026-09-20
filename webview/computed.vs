@@ -126,30 +126,17 @@ public final class ComputedStyle {
         BorderCollapse = parent.BorderCollapse
         BorderSpacing = parent.BorderSpacing
         TabSize = parent.TabSize
-        face = parent.face
+        face = nil
     }
 
     /// The face for the font properties, loaded the first time it is
-    /// asked for.
+    /// asked for. The font properties are settled by the time anything
+    /// asks, so the face is kept.
     public var Face: font.Face {
-        if let f = face {
-            if f.Size == FontSize && f.Spec.Weight == FontWeight && (f.Spec.Italic == (FontStyle != .normal)) && sameFamilies(f.Spec.Families) {
-                return f
-            }
-        }
+        if let f = face { return f }
         let f = font.Load(font.Spec(families: FontFamilies, size: FontSize, weight: FontWeight, italic: FontStyle != .normal))
         face = f
         return f
-    }
-
-    func sameFamilies(_ list: [string]) -> bool {
-        if list.count != FontFamilies.count { return false }
-        var i = 0
-        while i < list.count {
-            if list[i] != FontFamilies[i] { return false }
-            i += 1
-        }
-        return true
     }
 
     /// The line height in pixels: the face's for `normal`, a number

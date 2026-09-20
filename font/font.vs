@@ -25,16 +25,6 @@ public struct Spec: Equatable {
         Italic = italic
     }
 
-    func key() -> string {
-        var k = ""
-        var i = 0
-        while i < Families.count {
-            k += Families[i]
-            k += ","
-            i += 1
-        }
-        return k + "|\(Size)|\(Weight)|\(Italic ? 1 : 0)"
-    }
 }
 
 /// Text shaped into glyphs: what to draw, on which face, and how far
@@ -150,15 +140,20 @@ public final class Face {
     }
 }
 
-var faces: [string: Face] = [:]
+// Faces by their first family, then by the rest of the spec: a page uses
+// a family at a few sizes and weights, so the list is short.
+var faces: [string: [Face]] = [:]
 
 /// The face for a spec: the first of its families the system has, at
 /// the size, weight and slant asked for, or the platform's sans-serif
 /// where it has none of them.
 public func Load(_ spec: Spec) -> Face {
-    let key = spec.key()
-    if let cached = faces[key] {
-        return cached
+    let key = spec.Families.isEmpty ? "" : spec.Families[0]
+    let known = faces[key] ?? []
+    for f in known {
+        if f.Spec.Size == spec.Size && f.Spec.Weight == spec.Weight && f.Spec.Italic == spec.Italic && sameList(f.Spec.Families, spec.Families) {
+            return f
+        }
     }
     var size = spec.Size
     if size <= 0 { size = 16 }
@@ -180,8 +175,20 @@ public func Load(_ spec: Spec) -> Face {
     var used = spec
     used.Size = size
     let face = Face(id: id, spec: used, family: family)
-    faces[key] = face
+    var list = known
+    list.append(face)
+    faces[key] = list
     return face
+}
+
+func sameList(_ a: [string], _ b: [string]) -> bool {
+    if a.count != b.count { return false }
+    var i = 0
+    while i < a.count {
+        if a[i] != b[i] { return false }
+        i += 1
+    }
+    return true
 }
 
 func trimQuotes(_ s: string) -> string {

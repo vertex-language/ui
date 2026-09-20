@@ -250,16 +250,6 @@ func sortRules(_ rules: inout [StyleRule]) {
     }
 }
 
-/// An element's inline style, parsed once per value of the attribute.
-final class InlineStyle {
-    let text: string
-    let declarations: [Declaration]
-    init(text: string, declarations: [Declaration]) {
-        self.text = text
-        self.declarations = declarations
-    }
-}
-
 /// Computes styles: the user agent's rules, the page's, the element's
 /// own attribute, in that order, sorted as the cascade sorts them.
 public final class StyleResolver {
@@ -268,8 +258,10 @@ public final class StyleResolver {
     public var ViewportWidth: float32 = 800
     public var ViewportHeight: float32 = 600
     public var RootFontSize: float32 = 16
-    var inline: [int64: InlineStyle] = [:]
+    var inlineByText: [string: [Declaration]] = [:]
     var scratch: [StyleRule] = []
+    var matchedScratch: [StyleRule] = []
+    var declScratch: [Declaration] = []
 
     public init(ua: RuleSet) {
         UA = ua
@@ -294,24 +286,30 @@ public final class StyleResolver {
         // Every declaration that applies, in cascade order: UA rules,
         // presentational attributes, author rules, the style attribute,
         // then the !important ones in the same order over again.
-        var declarations: [Declaration] = []
+        declScratch.removeAll(keepingCapacity: true)
+        var declarations = declScratch
         scratch.removeAll(keepingCapacity: true)
         UA.candidates(node, into: &scratch)
-        var matched: [StyleRule] = []
+        matchedScratch.removeAll(keepingCapacity: true)
+        var matched = matchedScratch
         for r in scratch {
             if selector.MatchComplexIn(r.Selector, node, context) { matched.append(r) }
         }
         sortRules(&matched)
+        var uaImportantCount = 0
         for r in matched {
-            for d in r.Declarations where !d.Important { declarations.append(d) }
+            for d in r.Declarations {
+                if !d.Important { declarations.append(d) } else { uaImportantCount += 1 }
+            }
         }
-        let uaImportant = matched
+        var uaImportant: [StyleRule] = []
+        if uaImportantCount > 0 { uaImportant = matched }
 
         presentationalHints(node, into: &declarations)
 
         scratch.removeAll(keepingCapacity: true)
         Author.candidates(node, into: &scratch)
-        matched = []
+        matched.removeAll(keepingCapacity: true)
         for r in scratch {
             if selector.MatchComplexIn(r.Selector, node, context) { matched.append(r) }
         }
@@ -343,9 +341,15 @@ public final class StyleResolver {
         }
 
         finish(style, node: node, root: root)
+        // The same font as the parent's is the same face.
+        if let p = parent, style.FontSize == p.FontSize && style.FontWeight == p.FontWeight && style.FontStyle == p.FontStyle && sameFamilies(style.FontFamilies, p.FontFamilies) {
+            style.face = p.face
+        }
         if root {
             RootFontSize = style.FontSize
         }
+        declScratch = declarations
+        matchedScratch = matched
         return style
     }
 
@@ -355,14 +359,15 @@ public final class StyleResolver {
     }
 
     func inlineDeclarations(_ node: html.Node, _ text: string) -> [Declaration] {
-        if let cached = inline[node.Id], cached.text == text {
-            return cached.declarations
+        // By text: pages repeat the same style attribute on many elements.
+        if let cached = inlineByText[text] {
+            return cached
         }
         var decls: [Declaration] = []
         for d in css.ParseDeclarations(text) {
             decls.append(contentsOf: ParseDeclaration(d))
         }
-        inline[node.Id] = InlineStyle(text: text, declarations: decls)
+        inlineByText[text] = decls
         return decls
     }
 
@@ -1028,4 +1033,14 @@ func splitTop(_ s: string, on sep: uint8) -> [string] {
     }
     out.append(trimSpaces(draw.stringOf(b, start, b.count)))
     return out
+}
+
+func sameFamilies(_ a: [string], _ b: [string]) -> bool {
+    if a.count != b.count { return false }
+    var i = 0
+    while i < a.count {
+        if a[i] != b[i] { return false }
+        i += 1
+    }
+    return true
 }
