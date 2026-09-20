@@ -77,7 +77,7 @@ func main() async -> int32 {
   inline-blocks; images and form controls; floats and `clear`; flexbox rows and
   columns with wrap, grow, shrink, gaps and alignment; grid with fixed, fr
   and auto tracks, repeat() and auto-fill, spans and placement; tables with automatic
-  column widths, colspan, row groups and captions; absolute, fixed and relative
+  column widths, colspan, row groups and captions; absolute, fixed, relative and
   sticky positioning; `overflow` clipping and scrolling; `calc()`.
 - **Paint**: backgrounds with colors, gradients and images (sized, placed,
   tiled), rounded corners, borders in every style, box shadows, text with
