@@ -32,6 +32,12 @@ public enum EventResult: Equatable {
     case ignored
 }
 
+/// One end of a selection: a text node and a byte offset into its text.
+public struct TextPosition {
+    public var Node: html.Node
+    public var Offset: int
+}
+
 /// A field of a submitted form.
 public struct FormField {
     public var Name: string
@@ -78,6 +84,9 @@ public final class WebView {
     var pressed: html.Node? = nil
     var caret: int = 0
     var values: [int64: string] = [:]
+    var selectionAnchor: TextPosition? = nil
+    var selectionFocus: TextPosition? = nil
+    var selecting = false
     var cursor: window.Cursor = window.Cursor.arrow
     var pointer: window.Point = window.Point(-1, -1)
     var baseURL: string = ""
@@ -311,6 +320,11 @@ public final class WebView {
                 b.focused = focused?.Id ?? 0
                 b.caret = caret
                 b.images = images
+                if let range = selectionRange() {
+                    b.selectionStart = range.start
+                    b.selectionEnd = range.end
+                    b.textOrder = builder.textOrder
+                }
                 displayList = b.build(r, viewportWidth: size.Width, viewportHeight: size.Height, background: Configuration.BackgroundColor)
             } else {
                 displayList = []
@@ -394,6 +408,94 @@ public final class WebView {
 
     /// The element with keyboard focus.
     public var FocusedElement: html.Node? { return focused }
+
+    /// The selection's ends in document order, or nil for none.
+    func selectionRange() -> (start: TextPosition, end: TextPosition)? {
+        guard let a = selectionAnchor, let f = selectionFocus else { return nil }
+        let ao = builder.textOrder[a.Node.Id] ?? 0
+        let fo = builder.textOrder[f.Node.Id] ?? 0
+        if ao < fo || (ao == fo && a.Offset <= f.Offset) {
+            if ao == fo && a.Offset == f.Offset { return nil }
+            return (start: a, end: f)
+        }
+        return (start: f, end: a)
+    }
+
+    /// Whether any text is selected.
+    public var HasSelection: bool { return selectionRange() != nil }
+
+    /// The selected text, with a line break where the selection spans lines.
+    public func SelectedText() -> string {
+        update()
+        guard let range = selectionRange(), let r = root else { return "" }
+        var out = ""
+        var pastLine = false
+        collectSelectedText(r, range, &out, &pastLine)
+        return out
+    }
+
+    func collectSelectedText(_ box: Box, _ range: (start: TextPosition, end: TextPosition), _ out: inout string, _ lineBroken: inout bool) {
+        if box.Kind == .replaced { return }
+        if !box.Lines.isEmpty {
+            for line in box.Lines {
+                var tookSomething = false
+                for f in line.Fragments {
+                    if f.Kind == .atomic {
+                        collectSelectedText(f.Box, range, &out, &lineBroken)
+                        continue
+                    }
+                    if f.Kind != .text { continue }
+                    guard let node = f.Box.Node else { continue }
+                    if let part = selectedPart(f, node, range, builder.textOrder) {
+                        if lineBroken && !out.isEmpty { out += "\n" }
+                        lineBroken = false
+                        let bytes = [uint8](f.Text.utf8)
+                        out += draw.stringOf(bytes, part.from, part.to)
+                        tookSomething = true
+                    }
+                }
+                if tookSomething { lineBroken = true }
+            }
+            return
+        }
+        for child in box.Children {
+            if child.Kind == .text || child.Kind == .inline || child.Kind == .lineBreak { continue }
+            collectSelectedText(child, range, &out, &lineBroken)
+        }
+    }
+
+    /// Clears the selection.
+    public func ClearSelection() {
+        if selectionAnchor != nil || selectionFocus != nil {
+            selectionAnchor = nil
+            selectionFocus = nil
+            needsPaint = true
+        }
+    }
+
+    /// Selects all the text on the page.
+    public func SelectAll() {
+        update()
+        guard let r = root else { return }
+        var first: Box? = nil
+        var last: Box? = nil
+        findTextBoxes(r, &first, &last)
+        guard let f = first, let l = last, let fn = f.Node, let ln = l.Node else { return }
+        selectionAnchor = TextPosition(Node: fn, Offset: 0)
+        selectionFocus = TextPosition(Node: ln, Offset: l.Text.utf8.count)
+        needsPaint = true
+    }
+
+    func findTextBoxes(_ box: Box, _ first: inout Box?, _ last: inout Box?) {
+        if box.Kind == .text {
+            if !isBlank(box.Text) {
+                if first == nil { first = box }
+                last = box
+            }
+            return
+        }
+        for c in box.Children { findTextBoxes(c, &first, &last) }
+    }
 
     /// Gives an element focus, as clicking it or tabbing to it would.
     public func Focus(_ node: html.Node?) {

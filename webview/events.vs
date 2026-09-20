@@ -43,6 +43,18 @@ extension WebView {
 
     func pointerMoved(_ p: window.Point) -> EventResult {
         pointer = p
+        if selecting {
+            // Dragging extends the selection to the text under the pointer.
+            update()
+            if let hit = hitAt(clampedToView(p)), let tb = hit.TextBox, let node = tb.Node {
+                let focus = TextPosition(Node: node, Offset: hit.TextOffset)
+                if selectionFocus?.Node.Id != node.Id || selectionFocus?.Offset != hit.TextOffset {
+                    selectionFocus = focus
+                    needsPaint = true
+                }
+            }
+            return .handled
+        }
         if !isInside(p) {
             setHovered(nil)
             cursor = window.Cursor.arrow
@@ -53,6 +65,15 @@ extension WebView {
         setHovered(hit?.Node)
         cursor = cursorFor(hit)
         return .handled
+    }
+
+    func clampedToView(_ p: window.Point) -> window.Point {
+        var q = p
+        if q.X < origin.X { q.X = origin.X }
+        if q.Y < origin.Y { q.Y = origin.Y }
+        if q.X >= origin.X + size.Width { q.X = origin.X + size.Width - 1 }
+        if q.Y >= origin.Y + size.Height { q.Y = origin.Y + size.Height - 1 }
+        return q
     }
 
     /// The cursor an element asks for, or what its kind implies.
@@ -96,6 +117,7 @@ extension WebView {
 
     func pointerDown(_ p: window.Point) -> EventResult {
         update()
+        ClearSelection()
         guard let hit = hitAt(p) else {
             Focus(nil)
             return .handled
@@ -103,6 +125,13 @@ extension WebView {
         let node = hit.Node
         pressed = node
         if resolver.UsesActive { needsStyle = true }
+
+        // A press on text starts a selection, unless it is a link or a control.
+        if let tb = hit.TextBox, let textNode = tb.Node, controlAncestor(node) == nil && linkAncestor(node) == nil {
+            selectionAnchor = TextPosition(Node: textNode, Offset: hit.TextOffset)
+            selectionFocus = selectionAnchor
+            selecting = true
+        }
 
         // A text field: focus it and put the caret where the click was.
         if let control = controlAncestor(node) {
@@ -164,6 +193,10 @@ extension WebView {
     func pointerUp(_ p: window.Point) -> EventResult {
         let was = pressed
         pressed = nil
+        if selecting {
+            selecting = false
+            if !HasSelection { ClearSelection() }
+        }
         if resolver.UsesActive { needsStyle = true }
         guard let hit = hitAt(p) else { return .ignored }
         // A click is a press and release on the same element.
@@ -276,6 +309,17 @@ extension WebView {
                 return .handled
             }
         }
+        if k.Modifiers.Meta || k.Modifiers.Control {
+            if k.Code == .c {
+                let text = SelectedText()
+                if !text.isEmpty { window.SetClipboardText(text) }
+                return .handled
+            }
+            if k.Code == .a {
+                SelectAll()
+                return .handled
+            }
+        }
         let page = size.Height
         switch k.Code {
         case .arrowDown: scrollBy(0, 40)
@@ -372,6 +416,33 @@ extension WebView {
             if k.Modifiers.Meta || k.Modifiers.Control {
                 caret = bytes.count
                 needsPaint = true
+            } else {
+                return .ignored
+            }
+        case .c, .x:
+            if k.Modifiers.Meta || k.Modifiers.Control {
+                window.SetClipboardText(value)
+                if k.Code == .x && editable {
+                    setValue(f, "")
+                    caret = 0
+                }
+            } else {
+                return .ignored
+            }
+        case .v:
+            if (k.Modifiers.Meta || k.Modifiers.Control) && editable {
+                let pasted = window.ClipboardText()
+                if !pasted.isEmpty {
+                    var text = [uint8](pasted.utf8)
+                    if f.TagName != "textarea" {
+                        // A single-line field takes the first line.
+                        var i = 0
+                        while i < text.count && text[i] != 10 && text[i] != 13 { i += 1 }
+                        while text.count > i { text.removeLast() }
+                    }
+                    setValue(f, insertBytes(value, at: caret, text))
+                    caret += text.count
+                }
             } else {
                 return .ignored
             }

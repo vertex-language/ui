@@ -124,6 +124,12 @@ void    cwindow_fill_rect(uint8_t* rgba, int32_t buf_w, int32_t buf_h,
                           uint8_t r, uint8_t g, uint8_t b, uint8_t a,
                           int32_t clip_x, int32_t clip_y, int32_t clip_w, int32_t clip_h);
 
+// The system clipboard's text. Setting replaces it; getting copies it,
+// NUL-terminated, into buf and answers the number of bytes without the
+// NUL, which may be more than cap; 0 where the clipboard holds no text.
+void    cwindow_set_clipboard_text(const char* text);
+int32_t cwindow_clipboard_text(char* buf, int32_t cap);
+
 // The native objects, for a renderer binding its own swapchain.
 uint64_t cwindow_native_window(int32_t window);
 uint64_t cwindow_native_view(int32_t window);

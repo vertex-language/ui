@@ -579,6 +579,33 @@ func testView() {
     view.Draw(into: &pixels, canvasSize: window.PixelSize(w, h), scale: 1)
     check(pixelAt(pixels, w, 140, 190) == draw.Color(0x12, 0x34, 0x56), "the body's background fills the view")
 
+    // Selecting text by dragging.
+    let sel = webview.WebView()
+    sel.SetBounds(origin: window.Point(0, 0), size: window.Size(400, 200))
+    sel.LoadHTML("<body style='margin:0;font-size:16px;line-height:20px'><p id=p style='margin:0'>alpha beta gamma</p><p id=q style='margin:0'>delta</p></body>")
+    let pBox = sel.BoxFor(sel.QuerySelector("#p")!)!
+    let frag = pBox.Lines[0].Fragments[0]
+    let face = pBox.Style.Face
+    let startX = frag.X + face.Measure("alpha ") + 1
+    let endX = frag.X + face.Measure("alpha beta") - 1
+    _ = sel.Handle(.pointerDown(window.Pointer(Position: window.Point(startX, 10)), .primary))
+    _ = sel.Handle(.pointerMoved(window.Pointer(Position: window.Point(endX, 10))))
+    _ = sel.Handle(.pointerUp(window.Pointer(Position: window.Point(endX, 10)), .primary))
+    check(sel.SelectedText() == "beta", "dragging across a word selects it (got '\(sel.SelectedText())')")
+    _ = sel.Handle(.pointerDown(window.Pointer(Position: window.Point(startX, 10)), .primary))
+    _ = sel.Handle(.pointerMoved(window.Pointer(Position: window.Point(20, 30))))
+    _ = sel.Handle(.pointerUp(window.Pointer(Position: window.Point(20, 30)), .primary))
+    check(sel.SelectedText().hasPrefix("beta gamma\nde"), "a selection across lines breaks the line (got '\(sel.SelectedText())')")
+    var px3 = [uint8](repeating: 0, count: 400 * 200 * 4)
+    sel.Draw(into: &px3, canvasSize: window.PixelSize(400, 200), scale: 1)
+    let hl = pixelAt(px3, 400, int32(frag.X + face.Measure("alpha beta")), 2)
+    check(hl == draw.Color(179, 212, 252), "selected text is highlighted (got \(hl.R) \(hl.G) \(hl.B))")
+    _ = sel.Handle(.pointerDown(window.Pointer(Position: window.Point(300, 150)), .primary))
+    _ = sel.Handle(.pointerUp(window.Pointer(Position: window.Point(300, 150)), .primary))
+    check(!sel.HasSelection, "clicking elsewhere clears the selection")
+    sel.SelectAll()
+    check(sel.SelectedText() == "alpha beta gamma\ndelta", "SelectAll takes the page's text (got '\(sel.SelectedText())')")
+
     // High-DPI: everything scales.
     let view2 = webview.WebView()
     view2.SetBounds(origin: window.Point(0, 0), size: window.Size(100, 100))

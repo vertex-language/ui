@@ -1,5 +1,6 @@
 package webview
 
+import "text/html"
 import "ui/draw"
 import "ui/font"
 
@@ -144,6 +145,10 @@ final class DisplayListBuilder {
     var opacity: float32 = 1
     /// The page's images by URL, for backgrounds.
     var images: [string: draw.Image] = [:]
+    /// The selection, if any, and each text node's place in the document.
+    var selectionStart: TextPosition? = nil
+    var selectionEnd: TextPosition? = nil
+    var textOrder: [int64: int] = [:]
 
     init() {}
 
@@ -403,6 +408,19 @@ final class DisplayListBuilder {
                     side += 1
                 }
                 items.append(.border(rect, widths, colors, draw.Radii.zero))
+            }
+        }
+        // The selection's highlight goes under the text.
+        if let start = selectionStart, let end = selectionEnd {
+            for f in line.Fragments where f.Kind == .text {
+                guard let node = f.Box.Node else { continue }
+                if let part = selectedPart(f, node, (start: start, end: end), textOrder) {
+                    let face = f.Owner.Style.Face
+                    let bytes = [uint8](f.Text.utf8)
+                    let x0 = x + f.X + face.Measure(draw.stringOf(bytes, 0, part.from))
+                    let x1 = part.to >= bytes.count ? x + f.X + f.Width : x + f.X + face.Measure(draw.stringOf(bytes, 0, part.to))
+                    items.append(.fill(draw.Rect(x0, y + line.Y, x1 - x0, line.Height), draw.Color(179, 212, 252), draw.Radii.zero))
+                }
             }
         }
         for f in line.Fragments {
@@ -696,4 +714,30 @@ func rasterize(_ items: [PaintItem], on base: draw.Canvas, scale: float32, origi
             }
         }
     }
+}
+
+/// The part of a text fragment inside a selection, as byte offsets
+/// into the fragment's text, or nil for none.
+func selectedPart(_ f: Fragment, _ node: html.Node, _ range: (start: TextPosition, end: TextPosition),
+                  _ order: [int64: int]) -> (from: int, to: int)? {
+    let o = order[node.Id] ?? 0
+    let so = order[range.start.Node.Id] ?? 0
+    let eo = order[range.end.Node.Id] ?? 0
+    if o < so || o > eo { return nil }
+    let length = f.Text.utf8.count
+    // Fragment offsets count the box's original text; a fragment's
+    // text may be shorter where spaces collapsed, so the end is
+    // clamped to its length.
+    var from = 0
+    var to = length
+    if o == so {
+        from = range.start.Offset - f.Offset
+        if from < 0 { from = 0 }
+    }
+    if o == eo {
+        to = range.end.Offset - f.Offset
+        if to > length { to = length }
+    }
+    if from >= to { return nil }
+    return (from: from, to: to)
 }

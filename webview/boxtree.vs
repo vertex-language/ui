@@ -17,6 +17,9 @@ public final class BoxTreeBuilder {
     public var Values: [int64: string] = [:]
     /// Every box made, by node id, for the view to find an element's box.
     public var byNode: [int64: Box] = [:]
+    /// Each text node's place in document order, for ordering selections.
+    public var textOrder: [int64: int] = [:]
+    var textCount = 0
 
     public init(resolver: StyleResolver, context: selector.MatchContext) {
         self.resolver = resolver
@@ -27,6 +30,8 @@ public final class BoxTreeBuilder {
     /// document with no element.
     public func Build(_ doc: html.Document) -> Box? {
         byNode = [:]
+        textOrder = [:]
+        textCount = 0
         var rootNode: html.Node? = nil
         for c in doc.Root.Children {
             if c.Kind == html.NodeKind.element {
@@ -163,6 +168,8 @@ public final class BoxTreeBuilder {
                 if child.Text.isEmpty { continue }
                 let t = Box(kind: .text, style: parentStyle, node: child)
                 t.Text = child.Text
+                textCount += 1
+                textOrder[child.Id] = textCount
                 out.append(t)
             case .element:
                 let style = resolver.Resolve(child, parent: parentStyle, context: context)

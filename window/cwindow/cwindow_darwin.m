@@ -803,6 +803,37 @@ int32_t cwindow_present(int32_t window, const uint8_t* rgba, int32_t width, int3
     }
 }
 
+void cwindow_set_clipboard_text(const char* text) {
+    if (text == NULL)
+        return;
+    @autoreleasepool {
+        NSPasteboard* pb = [NSPasteboard generalPasteboard];
+        [pb clearContents];
+        NSString* str = [NSString stringWithUTF8String:text];
+        if (str != nil)
+            [pb setString:str forType:NSPasteboardTypeString];
+    }
+}
+
+int32_t cwindow_clipboard_text(char* buf, int32_t cap) {
+    @autoreleasepool {
+        NSPasteboard* pb = [NSPasteboard generalPasteboard];
+        NSString* str = [pb stringForType:NSPasteboardTypeString];
+        if (str == nil)
+            return 0;
+        const char* utf8 = [str UTF8String];
+        if (utf8 == NULL)
+            return 0;
+        int32_t n = (int32_t)strlen(utf8);
+        if (buf != NULL && cap > 0) {
+            int32_t k = n < cap - 1 ? n : cap - 1;
+            memcpy(buf, utf8, (size_t)k);
+            buf[k] = 0;
+        }
+        return n;
+    }
+}
+
 uint64_t cwindow_native_window(int32_t window) {
     CWWindow* w = windowOf(window);
     return w != nil ? (uint64_t)(uintptr_t)(__bridge void*)w.window : 0;
