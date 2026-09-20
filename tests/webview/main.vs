@@ -355,6 +355,40 @@ func testFloats() {
     check(two.rect("b")!.X == 100 && two.rect("c")!.X == 0 && two.rect("c")!.Y == 20, "floats line up and wrap when they do not fit (c at \(two.rect("c")!.X) \(two.rect("c")!.Y))")
 }
 
+func testTables() {
+    print("Tables")
+    guard let l = layoutOf("<body style='margin:0'><table id=t style='border-spacing:0'><tr><td id=a style='width:100px;height:20px;padding:0'>a</td><td id=b style='padding:0'>bb</td></tr><tr id=r2><td id=c style='padding:0'>c</td><td id=d style='padding:0;height:40px'>d</td></tr></table></body>") else { check(false, "layout"); return }
+    let a = l.rect("a")!
+    let b = l.rect("b")!
+    let c = l.rect("c")!
+    let d = l.rect("d")!
+    check(a.X == 0 && b.X == 100, "cells sit side by side in their columns (b at \(b.X))")
+    check(c.X == 0 && c.Width == 100, "a column is as wide as its widest cell (got \(c.Width))")
+    check(c.Y == a.Height && c.Height == 40 && d.Height == 40, "a row is as tall as its tallest cell and cells stretch (c \(c.Y) \(c.Height))")
+    check(b.Width > 10 && b.Width < 40, "an auto column fits its content (got \(b.Width))")
+    let t = l.rect("t")!
+    check(near(t.Width, 100 + b.Width) && near(t.Height, a.Height + 40), "the table shrinks to its columns and rows (got \(t.Width) x \(t.Height))")
+
+    guard let w = layoutOf("<body style='margin:0'><table id=t style='width:400px;border-spacing:0'><tr><td id=a style='padding:0'>x</td><td id=b style='padding:0'>y</td></tr></table></body>") else { check(false, "layout"); return }
+    check(w.rect("t")!.Width == 400 && near(w.rect("a")!.Width + w.rect("b")!.Width, 400), "a given width is shared by the columns (got \(w.rect("a")!.Width) + \(w.rect("b")!.Width))")
+
+    guard let sp = layoutOf("<body style='margin:0'><table id=t style='border-spacing:4px'><tr><td id=a style='padding:0;width:50px;height:10px'></td><td id=b style='padding:0;width:50px'></td></tr></table></body>") else { check(false, "layout"); return }
+    check(sp.rect("a")!.X == 4 && sp.rect("b")!.X == 58 && sp.rect("t")!.Width == 112, "border-spacing goes between and around cells (got \(sp.rect("a")!.X) \(sp.rect("b")!.X) \(sp.rect("t")!.Width))")
+
+    guard let cs = layoutOf("<body style='margin:0'><table style='border-spacing:0'><tr><td id=wide colspan=2 style='padding:0'>wide</td></tr><tr><td id=a style='padding:0;width:60px'>a</td><td id=b style='padding:0;width:70px'>b</td></tr></table></body>") else { check(false, "layout"); return }
+    check(cs.rect("wide")!.Width == 130, "a colspan cell spans its columns (got \(cs.rect("wide")!.Width))")
+
+    guard let va = layoutOf("<body style='margin:0;line-height:20px'><table style='border-spacing:0'><tr><td id=tall style='padding:0;height:60px'></td><td id=mid style='padding:0;vertical-align:middle'>m</td><td id=top style='padding:0;vertical-align:top'>t</td></tr></table></body>") else { check(false, "layout"); return }
+    let midLine = va.box("mid")!.Lines[0]
+    let topLine = va.box("top")!.Lines[0]
+    check(near(midLine.Y, 20) && topLine.Y == 0, "vertical-align middle centres a cell's content (got \(midLine.Y) and \(topLine.Y))")
+
+    guard let tb = layoutOf("<body style='margin:0'><table id=t style='border-spacing:0'><thead id=h><tr><th id=th style='padding:0'>Head</th></tr></thead><tbody id=body><tr><td id=td style='padding:0'>cell</td></tr></tbody></table><p id=after style='margin:0'>x</p></body>") else { check(false, "layout"); return }
+    check(tb.rect("td")!.Y == tb.rect("th")!.Height && tb.rect("body")!.Y == tb.rect("th")!.Height, "row groups stack (td at \(tb.rect("td")!.Y), tbody at \(tb.rect("body")!.Y))")
+    check(tb.rect("after")!.Y == tb.rect("t")!.Height, "the table takes its rows' height in the flow")
+    check(tb.box("th")!.Style.FontWeight == 700 && tb.box("th")!.Style.TextAlign == .center, "th is bold and centred by default")
+}
+
 func testPositioning() {
     print("Positioning")
     guard let l = layoutOf("<body style='margin:0'><div id=rel style='position:relative;width:300px;height:200px;margin-left:50px'><div id=abs style='position:absolute;top:10px;right:20px;width:100px;height:30px'></div><div id=full style='position:absolute;left:0;right:0;bottom:0;height:10px'></div></div><div id=fixed style='position:fixed;left:5px;top:6px;width:7px;height:8px'></div></body>") else { check(false, "layout"); return }
@@ -531,6 +565,7 @@ func main() -> int32 {
     testFlexLayout()
     testPositioning()
     testFloats()
+    testTables()
     testView()
     if failures == 0 {
         print("ALL WEBVIEW CHECKS PASSED")

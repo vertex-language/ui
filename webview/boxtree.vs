@@ -55,6 +55,22 @@ public final class BoxTreeBuilder {
     /// Whether children become flex items: blocks, each of its own.
     func place(_ made: [Box], into parent: Box) {
         if made.isEmpty { return }
+        if isTableInternal(parent.Style.Display) {
+            // Rows and groups hold cells and rows; loose text is dropped
+            // and a loose inline is wrapped as a cell would be.
+            var run: [Box] = []
+            for b in made {
+                if b.Kind == .text && isBlank(b.Text) { continue }
+                if b.Kind == .block {
+                    flushInline(&run, into: parent)
+                    parent.AppendChild(b)
+                } else {
+                    run.append(b)
+                }
+            }
+            flushInline(&run, into: parent)
+            return
+        }
         let flex = parent.Style.IsFlexContainer
         if flex {
             // Every flex item is a block; text between items becomes an
@@ -262,6 +278,17 @@ public final class BoxTreeBuilder {
         case .inline: return .inline
         case .inlineBlock, .inlineFlex, .inlineTable: return .inlineBlock
         default: return .block
+        }
+    }
+
+    /// Whether a box is a part of a table other than a cell: a row, a
+    /// row group, a column. Text in one is not content.
+    func isTableInternal(_ display: Display) -> bool {
+        switch display {
+        case .table, .inlineTable, .tableRow, .tableRowGroup, .tableHeaderGroup, .tableFooterGroup, .tableColumn, .tableColumnGroup:
+            return true
+        default:
+            return false
         }
     }
 

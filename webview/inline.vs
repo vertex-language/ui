@@ -473,7 +473,9 @@ extension Layout {
             var f = fragments[i]
             let ownerStyle = f.Owner.Style
             var shift: float32 = 0
-            var va = ownerStyle.VerticalAlign
+            // vertical-align is an inline box's: text straight in the
+            // block sits on the baseline whatever the block says.
+            var va = f.Owner.Kind == .inline ? ownerStyle.VerticalAlign : VerticalAlign.baseline
             if f.Kind == .atomic {
                 let b = f.Box
                 va = b.Style.VerticalAlign

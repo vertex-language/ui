@@ -172,7 +172,9 @@ public final class Layout {
     func layoutContent(_ box: Box, flow: Flow) -> float32 {
         let contentWidth = box.InnerWidth
         var height: float32 = 0
-        if box.Style.IsFlexContainer {
+        if box.Style.Display == .table || box.Style.Display == .inlineTable {
+            height = layoutTable(box, contentWidth: contentWidth, flow: flow)
+        } else if box.Style.IsFlexContainer {
             height = layoutFlex(box, contentWidth: contentWidth, flow: flow)
         } else if box.HasInlineChildren {
             height = layoutInline(box, contentWidth: contentWidth, flow: flow)
@@ -434,7 +436,11 @@ public final class Layout {
         }
         var minW: float32 = 0
         var maxW: float32 = 0
-        if s.IsFlexContainer {
+        if s.Display == .table || s.Display == .inlineTable {
+            let w = tableIntrinsicWidths(box)
+            minW = w.min
+            maxW = w.max
+        } else if s.IsFlexContainer {
             var sumMax: float32 = 0
             var maxMin: float32 = 0
             var sumMin: float32 = 0
