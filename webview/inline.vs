@@ -173,6 +173,51 @@ extension Layout {
                     guard let next = floats.nextBand(after: rootY + y) else { break }
                     y = next - rootY
                 }
+                // A word too long for a line of its own is broken inside
+                // where overflow-wrap or word-break allow; break-all
+                // breaks any word at the line's end.
+                if item.kind == .word && item.breakable {
+                    let style = item.owner.Style
+                    let breakAll = style.WordBreak == .breakAll
+                    let mayBreak = breakAll || style.OverflowWrap != .normal
+                    if mayBreak {
+                        var rest = item
+                        var rounds = 0
+                        while rounds < 1000 {
+                            rounds += 1
+                            let room = available() - (lineHasContent ? lineWidth : 0)
+                            let tooWide = rest.width > room + 0.01
+                            if !tooWide { break }
+                            // Whole-word wrapping first, unless break-all.
+                            if lineHasContent && canBreak && !breakAll && rest.width <= available() + 0.01 { break }
+                            if lineHasContent && (!breakAll || room < style.FontSize) && (canBreak || rounds > 1) {
+                                finishLine(forced: false)
+                                continue
+                            }
+                            let split = splitWord(rest, fitting: available() - (lineHasContent ? lineWidth : 0))
+                            if split.head.length == 0 {
+                                if lineHasContent { finishLine(forced: false); continue }
+                                break
+                            }
+                            lineItems.append(split.head)
+                            lineWidth += split.head.width
+                            lineHasContent = true
+                            if split.tail.length == 0 {
+                                rest.length = 0
+                                break
+                            }
+                            rest = split.tail
+                            finishLine(forced: false)
+                        }
+                        if rest.length == 0 { continue }
+                        if rest.length != item.length {
+                            lineItems.append(rest)
+                            lineWidth += rest.width
+                            lineHasContent = true
+                            continue
+                        }
+                    }
+                }
                 if lineHasContent && item.breakable && canBreak && lineWidth + item.width > available() + 0.01 {
                     // Break before the item, at the last space. The
                     // starts of inline elements just before it belong
@@ -457,7 +502,38 @@ extension Layout {
         for o in open {
             emitSpan(o, endX: x, isLast: false)
         }
-        let used = x
+        var used = x
+
+        // text-overflow: ellipsis on a clipped line that overflows: the
+        // text is cut where an ellipsis still fits.
+        if strutStyle.TextOverflow == .ellipsis && strutStyle.OverflowX.Clips && used > contentWidth + 0.01 && !fragments.isEmpty {
+            let ellipsis = strutFace.Shape("…")
+            let limit = contentWidth - ellipsis.Width
+            var keep = fragments.count
+            while keep > 0 && fragments[keep - 1].X > limit { keep -= 1 }
+            if keep > 0 {
+                var last = fragments[keep - 1]
+                if last.Kind == .text && last.X + last.Width > limit {
+                    let face = last.Owner.Style.Face
+                    let bytes = [uint8](last.Text.utf8)
+                    var cut = 0
+                    var i = 1
+                    while i <= bytes.count {
+                        if i == bytes.count || (bytes[i] & 0xC0) != 0x80 {
+                            if last.X + face.Measure(draw.stringOf(bytes, 0, i)) > limit { break }
+                            cut = i
+                        }
+                        i += 1
+                    }
+                    last.Text = draw.stringOf(bytes, 0, cut) + "…"
+                    last.Run = face.Shape(last.Text)
+                    last.Width = last.Run.Width
+                    fragments[keep - 1] = last
+                }
+                while fragments.count > keep { fragments.removeLast() }
+                used = fragments[keep - 1].X + fragments[keep - 1].Width
+            }
+        }
 
         // Vertical metrics: each fragment's box around the baseline.
         let strutAscent = strutFace.Ascent
@@ -652,6 +728,41 @@ extension Layout {
         if current > minW { minW = current }
         return (min: minW, max: maxW)
     }
+}
+
+/// A word cut in two at the last character boundary where the first
+/// part fits a width; the head is empty where not even one character
+/// fits.
+func splitWord(_ item: Item, fitting width: float32) -> (head: Item, tail: Item) {
+    let bytes = [uint8](item.text.utf8)
+    let face = item.owner.Style.Face
+    let spacing = item.owner.Style.LetterSpacing
+    var best = 0
+    var bestWidth: float32 = 0
+    var i = 1
+    while i <= bytes.count {
+        if i == bytes.count || (bytes[i] & 0xC0) != 0x80 {
+            let prefix = draw.stringOf(bytes, 0, i)
+            let run = face.Shape(prefix)
+            let w = run.Width + spacing * float32(run.Count)
+            if w > width + 0.01 { break }
+            best = i
+            bestWidth = w
+        }
+        i += 1
+    }
+    var head = item
+    var tail = item
+    head.text = draw.stringOf(bytes, 0, best)
+    head.run = face.Shape(head.text)
+    head.width = bestWidth
+    head.length = best
+    tail.text = draw.stringOf(bytes, best, bytes.count)
+    tail.run = face.Shape(tail.text)
+    tail.width = tail.run.Width + spacing * float32(tail.run.Count)
+    tail.offset = item.offset + best
+    tail.length = bytes.count - best
+    return (head: head, tail: tail)
 }
 
 func lastIndex(_ list: [OpenSpan], of box: Box) -> int? {

@@ -92,6 +92,9 @@ public final class ComputedStyle {
     public var LetterSpacing: float32 = 0
     public var WordSpacing: float32 = 0
     public var WhiteSpace: WhiteSpace = .normal
+    public var OverflowWrap: OverflowWrap = .normal
+    public var WordBreak: WordBreak = .normal
+    public var TextOverflow: TextOverflow = .clip
     public var ListStyleType: ListStyleType = .disc
     public var ListStylePosition: ListStylePosition = .outside
     public var Cursor: CursorKind = .auto
@@ -119,6 +122,8 @@ public final class ComputedStyle {
         LetterSpacing = parent.LetterSpacing
         WordSpacing = parent.WordSpacing
         WhiteSpace = parent.WhiteSpace
+        OverflowWrap = parent.OverflowWrap
+        WordBreak = parent.WordBreak
         ListStyleType = parent.ListStyleType
         ListStylePosition = parent.ListStylePosition
         Cursor = parent.Cursor

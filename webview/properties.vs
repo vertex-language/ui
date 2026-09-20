@@ -85,6 +85,9 @@ public enum Prop: int32 {
     case letterSpacing
     case wordSpacing
     case whiteSpace
+    case overflowWrap
+    case wordBreak
+    case textOverflow
     case listStyleType
     case listStylePosition
     case cursor
@@ -180,6 +183,7 @@ let propNames: [string: Prop] = [
     "font-style": .fontStyle, "line-height": .lineHeight, "text-align": .textAlign,
     "text-transform": .textTransform, "text-indent": .textIndent, "letter-spacing": .letterSpacing,
     "word-spacing": .wordSpacing, "white-space": .whiteSpace, "list-style-type": .listStyleType,
+    "overflow-wrap": .overflowWrap, "word-wrap": .overflowWrap, "word-break": .wordBreak, "text-overflow": .textOverflow,
     "list-style-position": .listStylePosition, "cursor": .cursor, "visibility": .visibility,
     "border-collapse": .borderCollapse, "border-spacing": .borderSpacing, "tab-size": .tabSize,
 ]
@@ -371,7 +375,7 @@ public func ParseDeclaration(_ d: css.Declaration) -> [Declaration] {
          "user-select", "pointer-events", "appearance", "-webkit-appearance", "resize", "scroll-behavior",
          "text-rendering", "-webkit-font-smoothing", "-moz-osx-font-smoothing", "filter", "backdrop-filter",
          "clip-path", "object-fit", "aspect-ratio", "will-change", "contain", "isolation",
-         "text-overflow", "word-break", "overflow-wrap", "word-wrap", "hyphens", "direction",
+         "hyphens", "direction",
          "unicode-bidi", "writing-mode", "columns", "column-count", "column-width", "caption-side",
          "empty-cells", "speak", "orphans", "widows", "page-break-before", "page-break-after",
          "break-inside", "font-display", "text-shadow", "mix-blend-mode", "background-clip",
@@ -965,6 +969,21 @@ func parseValue(_ prop: Prop, _ tokens: [css.Token]) -> Value? {
     case .whiteSpace:
         switch kw {
         case "normal", "nowrap", "pre", "pre-wrap", "pre-line", "break-spaces": return .keyword(kw == "break-spaces" ? "pre-wrap" : kw)
+        default: return nil
+        }
+    case .overflowWrap:
+        switch kw {
+        case "normal", "break-word", "anywhere": return .keyword(kw)
+        default: return nil
+        }
+    case .wordBreak:
+        switch kw {
+        case "normal", "break-all", "keep-all", "break-word": return .keyword(kw)
+        default: return nil
+        }
+    case .textOverflow:
+        switch kw {
+        case "clip", "ellipsis": return .keyword(kw)
         default: return nil
         }
     case .listStyleType:

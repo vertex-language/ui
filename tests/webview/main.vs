@@ -389,6 +389,36 @@ func testTables() {
     check(tb.box("th")!.Style.FontWeight == 700 && tb.box("th")!.Style.TextAlign == .center, "th is bold and centred by default")
 }
 
+func testWrapping() {
+    print("Wrapping")
+    let long = "averyveryveryveryveryverylongwordthatdoesnotfitonaline"
+    guard let l = layoutOf("<body style='margin:0;font-size:16px'><p id=a style='margin:0;width:100px'>\(long) end</p><p id=b style='margin:0;width:100px;overflow-wrap:break-word'>\(long) end</p><p id=c style='margin:0;width:100px;word-break:break-all'>short words \(long)</p></body>") else { check(false, "layout"); return }
+    let a = l.box("a")!
+    check(a.Lines.count == 2 && a.Lines[0].Fragments[0].Width > 100, "a long word overflows by default (\(a.Lines.count) lines)")
+    let b = l.box("b")!
+    var widest: float32 = 0
+    var pieces = 0
+    for line in b.Lines {
+        for f in line.Fragments {
+            if f.X + f.Width > widest { widest = f.X + f.Width }
+            pieces += 1
+        }
+    }
+    check(b.Lines.count > 2 && widest <= 100.5, "overflow-wrap: break-word breaks the word across lines (\(b.Lines.count) lines, widest \(widest))")
+    var joined = ""
+    for line in b.Lines {
+        for f in line.Fragments { joined += f.Text }
+    }
+    check(joined == long + " end" || joined == long + "end", "the pieces spell the word (got \(joined))")
+    let c = l.box("c")!
+    check(c.Lines.count > 2, "word-break: break-all breaks anywhere (\(c.Lines.count) lines)")
+
+    guard let e = layoutOf("<body style='margin:0;font-size:16px'><p id=p style='margin:0;width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>This sentence is far too long for the box</p></body>") else { check(false, "layout"); return }
+    let line = e.box("p")!.Lines[0]
+    let last = line.Fragments[line.Fragments.count - 1]
+    check(last.Text.hasSuffix("…") && last.X + last.Width <= 120.5, "text-overflow: ellipsis cuts the line with an ellipsis (got \(last.Text))")
+}
+
 func testPositioning() {
     print("Positioning")
     guard let l = layoutOf("<body style='margin:0'><div id=rel style='position:relative;width:300px;height:200px;margin-left:50px'><div id=abs style='position:absolute;top:10px;right:20px;width:100px;height:30px'></div><div id=full style='position:absolute;left:0;right:0;bottom:0;height:10px'></div></div><div id=fixed style='position:fixed;left:5px;top:6px;width:7px;height:8px'></div></body>") else { check(false, "layout"); return }
@@ -566,6 +596,7 @@ func main() -> int32 {
     testPositioning()
     testFloats()
     testTables()
+    testWrapping()
     testView()
     if failures == 0 {
         print("ALL WEBVIEW CHECKS PASSED")

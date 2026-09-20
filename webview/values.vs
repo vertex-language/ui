@@ -152,6 +152,23 @@ public enum WhiteSpace: Equatable {
     public var KeepsNewlines: bool { return self == .pre || self == .preWrap || self == .preLine }
 }
 
+public enum OverflowWrap: Equatable {
+    case normal
+    case breakWord
+    case anywhere
+}
+
+public enum WordBreak: Equatable {
+    case normal
+    case breakAll
+    case keepAll
+}
+
+public enum TextOverflow: Equatable {
+    case clip
+    case ellipsis
+}
+
 public enum TextTransform: Equatable {
     case none
     case uppercase

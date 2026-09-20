@@ -778,6 +778,15 @@ func apply(_ d: Declaration, _ s: ComputedStyle, _ ctx: ApplyContext) {
             default: s.WhiteSpace = .normal
             }
         }
+    case .overflowWrap:
+        if let k = keywordOf(v) { s.OverflowWrap = k == "break-word" ? .breakWord : (k == "anywhere" ? .anywhere : .normal) }
+    case .wordBreak:
+        if let k = keywordOf(v) {
+            s.WordBreak = k == "break-all" ? .breakAll : (k == "keep-all" ? .keepAll : .normal)
+            if k == "break-word" { s.OverflowWrap = .breakWord }
+        }
+    case .textOverflow:
+        if let k = keywordOf(v) { s.TextOverflow = k == "ellipsis" ? .ellipsis : .clip }
     case .listStyleType:
         if let k = keywordOf(v) {
             switch k {
@@ -1067,6 +1076,9 @@ func copyProperty(_ p: Prop, from a: ComputedStyle, to b: ComputedStyle) {
     case .letterSpacing: b.LetterSpacing = a.LetterSpacing
     case .wordSpacing: b.WordSpacing = a.WordSpacing
     case .whiteSpace: b.WhiteSpace = a.WhiteSpace
+    case .overflowWrap: b.OverflowWrap = a.OverflowWrap
+    case .wordBreak: b.WordBreak = a.WordBreak
+    case .textOverflow: b.TextOverflow = a.TextOverflow
     case .listStyleType: b.ListStyleType = a.ListStyleType
     case .listStylePosition: b.ListStylePosition = a.ListStylePosition
     case .cursor: b.Cursor = a.Cursor
