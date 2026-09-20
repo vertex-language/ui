@@ -603,6 +603,19 @@ func testView() {
     view.Draw(into: &pixels, canvasSize: window.PixelSize(w, h), scale: 1)
     check(pixelAt(pixels, w, 140, 190) == draw.Color(0x12, 0x34, 0x56), "the body's background fills the view")
 
+    // A select takes the keyboard.
+    let sv = webview.WebView()
+    sv.SetBounds(origin: window.Point(0, 0), size: window.Size(300, 100))
+    sv.LoadHTML("<select id=s name=s><option>Alpha</option><option>Beta</option><option value=g>Gamma</option></select>")
+    let selectNode = sv.QuerySelector("#s")!
+    sv.Focus(selectNode)
+    _ = sv.Handle(.keyDown(window.KeyEvent(Code: .arrowDown, Key: "ArrowDown", Modifiers: window.Modifiers(), Repeat: false)))
+    check(sv.BoxFor(selectNode)!.Text == "Beta", "arrow down picks the next option (got \(sv.BoxFor(selectNode)!.Text))")
+    _ = sv.Handle(.keyDown(window.KeyEvent(Code: .g, Key: "g", Modifiers: window.Modifiers(), Repeat: false)))
+    check(sv.BoxFor(selectNode)!.Text == "Gamma", "a letter jumps to the option starting with it")
+    _ = sv.Handle(.keyDown(window.KeyEvent(Code: .home, Key: "Home", Modifiers: window.Modifiers(), Repeat: false)))
+    check(sv.BoxFor(selectNode)!.Text == "Alpha", "Home goes to the first option")
+
     // Selecting text by dragging.
     let sel = webview.WebView()
     sel.SetBounds(origin: window.Point(0, 0), size: window.Size(400, 200))

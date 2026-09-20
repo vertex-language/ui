@@ -295,6 +295,49 @@ extension WebView {
         if let f = focused, isTextControl(f) {
             return editKey(f, k)
         }
+        if let f = focused, f.TagName == "select" {
+            // Up and down move through the options; Home and End go to
+            // the ends; a letter jumps to the next option starting with it.
+            var options: [html.Node] = []
+            collectTags(f, "option", &options)
+            if options.isEmpty { return .ignored }
+            var current = -1
+            var i = 0
+            while i < options.count {
+                if options[i].HasAttribute("selected") && current < 0 { current = i }
+                i += 1
+            }
+            if current < 0 { current = 0 }
+            var next = current
+            switch k.Code {
+            case .arrowDown, .arrowRight: next = current + 1 < options.count ? current + 1 : current
+            case .arrowUp, .arrowLeft: next = current > 0 ? current - 1 : 0
+            case .home: next = 0
+            case .end: next = options.count - 1
+            case .tab:
+                moveFocus(backwards: k.Modifiers.Shift)
+                return .handled
+            case .escape:
+                Focus(nil)
+                return .handled
+            default:
+                let key = [uint8](lower(k.Key).utf8)
+                if key.count != 1 { return .ignored }
+                var j = 1
+                while j <= options.count {
+                    let idx = (current + j) % options.count
+                    let text = [uint8](lower(trimSpaces(options[idx].InnerText())).utf8)
+                    if !text.isEmpty && text[0] == key[0] { next = idx; break }
+                    j += 1
+                }
+            }
+            if next != current {
+                for o in options { removeAttribute(o, "selected") }
+                options[next].SetAttribute("selected", "")
+                needsStyle = true
+            }
+            return .handled
+        }
         if k.Code == .tab {
             moveFocus(backwards: k.Modifiers.Shift)
             return .handled
