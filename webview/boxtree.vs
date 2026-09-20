@@ -30,6 +30,7 @@ public final class BoxTreeBuilder {
     /// document with no element.
     public func Build(_ doc: html.Document) -> Box? {
         byNode = [:]
+        resolver.StateTrace.removeAll(keepingCapacity: true)
         textOrder = [:]
         textCount = 0
         var rootNode: html.Node? = nil

@@ -110,9 +110,7 @@ extension WebView {
                 cb(nil)
             }
         }
-        if resolver.UsesHover {
-            needsStyle = true
-        }
+        stateChanged()
     }
 
     func pointerDown(_ p: window.Point) -> EventResult {
@@ -124,7 +122,7 @@ extension WebView {
         }
         let node = hit.Node
         pressed = node
-        if resolver.UsesActive { needsStyle = true }
+        stateChanged()
 
         // A press on text starts a selection, unless it is a link or a control.
         if let tb = hit.TextBox, let textNode = tb.Node, controlAncestor(node) == nil && linkAncestor(node) == nil {
@@ -197,7 +195,7 @@ extension WebView {
             selecting = false
             if !HasSelection { ClearSelection() }
         }
-        if resolver.UsesActive { needsStyle = true }
+        stateChanged()
         guard let hit = hitAt(p) else { return .ignored }
         // A click is a press and release on the same element.
         if let w = was, let n = hit.Node, sameOrAncestor(w, n) || sameOrAncestor(n, w) {

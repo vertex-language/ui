@@ -20,6 +20,7 @@ let package = Package(
         .executable(name: "check-font", targets: ["check-font"]),
         .executable(name: "browser", targets: ["browser"]),
         .executable(name: "snapshot", targets: ["snapshot"]),
+        .executable(name: "bench", targets: ["bench"]),
     ],
     targets: [
         // The platform's window system, as a C ABI.
@@ -126,6 +127,12 @@ let package = Package(
             name: "snapshot",
             dependencies: ["window", "webview", "draw", "image"],
             path: "examples/snapshot"
+        ),
+        // The engine timed on a page.
+        .executableTarget(
+            name: "bench",
+            dependencies: ["window", "webview", "draw", "image"],
+            path: "examples/bench"
         ),
         // Full desktop HTML & CSS browser example.
         .executableTarget(

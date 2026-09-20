@@ -6,6 +6,15 @@ import "text/css/selector"
 import "ui/draw"
 
 /// One selector of one rule, with what the cascade sorts by.
+/// One test of a rule that asks about hover, focus or the press.
+public struct StateEntry {
+    let node: html.Node
+    let rule: StyleRule
+    /// "" for the element, else the pseudo-element the rule is on.
+    let pseudo: string
+    let matched: bool
+}
+
 final class StyleRule {
     let Selector: selector.ComplexSelector
     /// Specificity packed as ids, classes, tags, high to low.
@@ -16,6 +25,9 @@ final class StyleRule {
     /// The media query the rule is under, or "" for none.
     let Media: string
     var enabled: bool = true
+    /// Whether the selector asks about hover, focus or the press: its
+    /// match can change without the tree changing.
+    var usesState: bool = false
 
     init(selector sel: selector.ComplexSelector, order: int32, declarations: [Declaration], media: string) {
         Selector = sel
@@ -91,22 +103,25 @@ public final class RuleSet {
             for sel in parsed {
                 order += 1
                 let r = StyleRule(selector: sel, order: order, declarations: decls, media: media)
-                noteState(sel)
+                r.usesState = noteState(sel)
                 bucket(r)
             }
         }
     }
 
-    func noteState(_ sel: selector.ComplexSelector) {
+    /// Notes which states a selector asks about; whether it asks any.
+    func noteState(_ sel: selector.ComplexSelector) -> bool {
+        var uses = false
         for c in sel.Compounds {
             for p in c.Part.Pseudos {
-                if p.Name == "hover" { UsesHover = true }
-                if p.Name == "focus" || p.Name == "focus-within" || p.Name == "focus-visible" { UsesFocus = true }
-                if p.Name == "active" { UsesActive = true }
+                if p.Name == "hover" { UsesHover = true; uses = true }
+                if p.Name == "focus" || p.Name == "focus-within" || p.Name == "focus-visible" { UsesFocus = true; uses = true }
+                if p.Name == "active" { UsesActive = true; uses = true }
                 if p.Name == "visited" { UsesVisited = true }
-                for inner in p.Inner { noteState(inner) }
+                for inner in p.Inner { if noteState(inner) { uses = true } }
             }
         }
+        return uses
     }
 
     func bucket(_ r: StyleRule) {
@@ -281,6 +296,11 @@ public final class StyleResolver {
         Author = RuleSet()
     }
 
+    /// Every test of a state-dependent rule against an element since the
+    /// trace was last cleared, with its outcome. A change of hover, focus
+    /// or press can only alter styles where one of these outcomes turns.
+    public var StateTrace: [StateEntry] = []
+
     /// Whether the page's rules react to the pointer or keyboard.
     public var UsesHover: bool { return Author.UsesHover || UA.UsesHover }
     public var UsesFocus: bool { return Author.UsesFocus || UA.UsesFocus }
@@ -298,10 +318,14 @@ public final class StyleResolver {
         if uaList.isEmpty && authorList.isEmpty { return nil }
         var matched: [StyleRule] = []
         for r in uaList where r.enabled {
-            if selector.MatchComplexIn(r.Selector, node, context, pseudoElement: which) { matched.append(r) }
+            let m = selector.MatchComplexIn(r.Selector, node, context, pseudoElement: which)
+            if r.usesState { StateTrace.append(StateEntry(node: node, rule: r, pseudo: which, matched: m)) }
+            if m { matched.append(r) }
         }
         for r in authorList where r.enabled {
-            if selector.MatchComplexIn(r.Selector, node, context, pseudoElement: which) { matched.append(r) }
+            let m = selector.MatchComplexIn(r.Selector, node, context, pseudoElement: which)
+            if r.usesState { StateTrace.append(StateEntry(node: node, rule: r, pseudo: which, matched: m)) }
+            if m { matched.append(r) }
         }
         if matched.isEmpty { return nil }
         sortRules(&matched)
@@ -341,7 +365,9 @@ public final class StyleResolver {
         matchedScratch.removeAll(keepingCapacity: true)
         var matched = matchedScratch
         for r in scratch {
-            if selector.MatchComplexIn(r.Selector, node, context) { matched.append(r) }
+            let m = selector.MatchComplexIn(r.Selector, node, context)
+            if r.usesState { StateTrace.append(StateEntry(node: node, rule: r, pseudo: "", matched: m)) }
+            if m { matched.append(r) }
         }
         sortRules(&matched)
         var uaImportantCount = 0
@@ -359,7 +385,9 @@ public final class StyleResolver {
         Author.candidates(node, into: &scratch)
         matched.removeAll(keepingCapacity: true)
         for r in scratch {
-            if selector.MatchComplexIn(r.Selector, node, context) { matched.append(r) }
+            let m = selector.MatchComplexIn(r.Selector, node, context)
+            if r.usesState { StateTrace.append(StateEntry(node: node, rule: r, pseudo: "", matched: m)) }
+            if m { matched.append(r) }
         }
         sortRules(&matched)
         for r in matched {

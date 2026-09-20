@@ -618,7 +618,28 @@ public final class WebView {
             caret = value.utf8.count
         }
         showCaret()
-        if resolver.UsesFocus { needsStyle = true } else { needsPaint = true }
+        stateChanged()
+        needsPaint = true
+    }
+
+    /// Hover, focus or the press moved: styles need recomputing only
+    /// where a rule asking about them matches differently now, which
+    /// the trace of the last build tells without a rebuild.
+    func stateChanged() {
+        if needsStyle || root == nil { return }
+        if resolver.StateTrace.isEmpty { return }
+        context.Hovered = hovered
+        context.Focused = focused
+        context.Active = pressed
+        for e in resolver.StateTrace {
+            let m = e.pseudo.isEmpty
+                ? selector.MatchComplexIn(e.rule.Selector, e.node, context)
+                : selector.MatchComplexIn(e.rule.Selector, e.node, context, pseudoElement: e.pseudo)
+            if m != e.matched {
+                needsStyle = true
+                return
+            }
+        }
     }
 
     /// Scrolls so that an element is in view.

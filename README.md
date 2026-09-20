@@ -67,13 +67,17 @@ func main() async -> int32 {
 ### What it renders
 
 - **Style**: the cascade with specificity, `!important`, inheritance, `em`,
-  `rem` and viewport units, `@media` queries, `:hover`, `:focus`, `:active`,
-  `:nth-child()` and the rest of the selector family, `<link rel=stylesheet>`,
-  inline styles and presentational attributes, and a user agent stylesheet
-  after the standard's rendering section.
+  `rem` and viewport units, `@media` queries, `@import`, `@font-face`,
+  `:hover`, `:focus`, `:active`, `:visited` (the host says what was
+  visited), `:nth-child()` and the rest of the selector family,
+  `<link rel=stylesheet>`, `<base href>`, inline styles and presentational
+  attributes, and a user agent stylesheet after the standard's rendering
+  section. Pointer and keyboard state restyle only the elements whose
+  rules ask about it.
 - **Layout**: block flow with collapsing margins; inline formatting with
   white-space handling, line breaking at spaces and inside words where
-  `overflow-wrap` allows, baseline alignment, `text-align`, `text-overflow`;
+  `overflow-wrap` allows, baseline alignment, `text-align` including
+  `justify`, `text-overflow`;
   inline-blocks; images and form controls; floats and `clear`; flexbox rows and
   columns with wrap, grow, shrink, gaps and alignment; grid with fixed, fr
   and auto tracks, repeat() and auto-fill, spans and placement; tables with automatic
@@ -84,7 +88,7 @@ func main() async -> int32 {
   decorations, opacity, `visibility`, `z-index`, and a display list that
   scrolls without laying out again.
 - **Input**: hover with cursors, links with a base URL, text editing in inputs
-  and textareas with a caret, check boxes, radios, selects, buttons, labels,
+  and textareas with a blinking caret, check boxes, radios, selects, buttons, labels,
   `<details>`, form submission with its fields, Tab focus, keyboard scrolling,
   text selection with the mouse, copy and paste.
 
@@ -100,8 +104,10 @@ No JavaScript. The DOM (`text/html`) is the API: edit nodes and call
 | `Draw(into:canvasSize:scale:)` | Paint into the window's pixels at the device scale. |
 | `Handle(_:)` | Take a window event; `.handled` or `.ignored`. |
 | `NeedsRepaint()`, `DesiredCursor()` | What the host should do next. |
+| `NeedsAnimation()`, `Advance(time:)` | The caret blinks: keep frames coming while true. |
 | `ScrollOffset()`, `SetScrollOffset(_:)`, `ScrollTo(_:)`, `ContentSize()` | Scrolling. |
 | `OnNavigate`, `OnSubmit`, `OnAction`, `OnTitleChanged`, `OnHoverLink` | What the user did. |
+| `IsVisited` | Which links the host has been to, for `:visited`. |
 | `Document`, `Title`, `QuerySelector(_:)`, `ElementAt(_:)`, `BoxFor(_:)` | The page and its layout. |
 | `Focus(_:)`, `FocusedElement`, `ValueOf(_:)` | Forms. |
 | `SelectedText()`, `SelectAll()`, `ClearSelection()` | Selection. |
@@ -117,6 +123,9 @@ vsc run browser
 
 # A page rendered to a PNG, without a window.
 vsc run snapshot -- examples/pages/home.html out.png 900 700 2
+
+# The engine timed on a page: first frame, relayout, scroll, hover.
+vsc run bench -- examples/pages/docs.html
 
 # The checks.
 vsc run check-draw
