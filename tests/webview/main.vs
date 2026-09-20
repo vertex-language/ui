@@ -419,6 +419,21 @@ func testWrapping() {
     check(last.Text.hasSuffix("…") && last.X + last.Width <= 120.5, "text-overflow: ellipsis cuts the line with an ellipsis (got \(last.Text))")
 }
 
+func testPseudoElements() {
+    print("Pseudo-elements")
+    guard let l = layoutOf("<style>p::before { content: '> '; color: red } a::after { content: ' (' attr(href) ')' } .clear::after { content: ''; display: block; clear: both; height: 5px }</style><body style='margin:0'><p id=p style='margin:0'>text</p><p id=q style='margin:0'><a href='x.html'>link</a></p><div class=clear id=c><div style='float:left;width:20px;height:30px'></div></div><div id=after></div></body>") else { check(false, "layout"); return }
+    let p = l.box("p")!
+    var joined = ""
+    for f in p.Lines[0].Fragments { joined += f.Text }
+    check(joined == "> text", "::before puts its content first (got '\(joined)')")
+    check(p.Lines[0].Fragments[0].Owner.Style.Color == draw.Color(255, 0, 0), "the pseudo-element has its own style")
+    let q = l.box("q")!
+    joined = ""
+    for f in q.Lines[0].Fragments { joined += f.Text }
+    check(joined == "> link (x.html)", "::after with attr() reads the element's attribute (got '\(joined)')")
+    check(l.rect("c")!.Height == 35 && l.rect("after")!.Y == l.rect("c")!.Y + 35, "a clearing ::after block contains the float (got \(l.rect("c")!.Height))")
+}
+
 func testPositioning() {
     print("Positioning")
     guard let l = layoutOf("<body style='margin:0'><div id=rel style='position:relative;width:300px;height:200px;margin-left:50px'><div id=abs style='position:absolute;top:10px;right:20px;width:100px;height:30px'></div><div id=full style='position:absolute;left:0;right:0;bottom:0;height:10px'></div></div><div id=fixed style='position:fixed;left:5px;top:6px;width:7px;height:8px'></div></body>") else { check(false, "layout"); return }
@@ -624,6 +639,7 @@ func main() -> int32 {
     testFloats()
     testTables()
     testWrapping()
+    testPseudoElements()
     testView()
     if failures == 0 {
         print("ALL WEBVIEW CHECKS PASSED")

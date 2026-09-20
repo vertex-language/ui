@@ -102,6 +102,9 @@ public final class ComputedStyle {
     public var BorderCollapse: BorderCollapse = .separate
     public var BorderSpacing: float32 = 2
     public var TabSize: int32 = 8
+    /// The `content` of a pseudo-element, as its parts: text, or
+    /// "\u{1}name" for attr(name). Nil is none.
+    public var Content: [string]? = nil
 
     var face: font.Face? = nil
 

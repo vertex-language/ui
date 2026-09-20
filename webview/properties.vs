@@ -95,6 +95,7 @@ public enum Prop: int32 {
     case borderCollapse
     case borderSpacing
     case tabSize
+    case content
 }
 
 /// A unit a length was written in.
@@ -186,6 +187,7 @@ let propNames: [string: Prop] = [
     "overflow-wrap": .overflowWrap, "word-wrap": .overflowWrap, "word-break": .wordBreak, "text-overflow": .textOverflow,
     "list-style-position": .listStylePosition, "cursor": .cursor, "visibility": .visibility,
     "border-collapse": .borderCollapse, "border-spacing": .borderSpacing, "tab-size": .tabSize,
+    "content": .content,
 ]
 
 /// Parses a declaration from a stylesheet into the longhands it sets.
@@ -368,7 +370,7 @@ public func ParseDeclaration(_ d: css.Declaration) -> [Declaration] {
     case "place-items":
         if let v = parseValue(.alignItems, [tokens[0]]) { set(.alignItems, v) }
     case "text-decoration-style", "text-decoration-thickness", "text-underline-offset",
-         "transition", "animation", "transform", "content", "quotes", "counter-reset", "counter-increment",
+         "transition", "animation", "transform", "quotes", "counter-reset", "counter-increment",
          "background-attachment",
          "font-variant", "font-stretch", "font-feature-settings", "src", "unicode-range",
          "grid-template-columns", "grid-template-rows", "grid-area", "grid-column", "grid-row",
@@ -1013,6 +1015,32 @@ func parseValue(_ prop: Prop, _ tokens: [css.Token]) -> Value? {
         return nil
     case .borderSpacing:
         return parseLengthValue(t, allowAuto: false)
+    case .content:
+        // Strings, attr(), and the keywords; counters and quotes are
+        // read as nothing.
+        if kw == "none" || kw == "normal" { return .none }
+        var parts: [string] = []
+        var i = 0
+        while i < tokens.count {
+            let tok = tokens[i]
+            if tok.Kind == .string {
+                parts.append(tok.Value)
+            } else if tok.Kind == .function && lower(tok.Value) == "attr" {
+                let end = closeParen(tokens, from: i + 1)
+                if i + 1 < end && tokens[i + 1].Kind == .ident {
+                    parts.append("\u{1}" + lower(tokens[i + 1].Value))
+                }
+                i = end
+            } else if tok.Kind == .function {
+                i = closeParen(tokens, from: i + 1)
+            } else if tok.Kind == .ident {
+                let word = lower(tok.Value)
+                if word == "open-quote" { parts.append("\u{201C}") }
+                if word == "close-quote" { parts.append("\u{201D}") }
+            }
+            i += 1
+        }
+        return .families(parts)
     }
 }
 

@@ -274,10 +274,71 @@ public final class BoxTreeBuilder {
             }
             byNode[node.Id] = box
             buildChildren(of: node, into: box, parentStyle: style)
+            addPseudoElements(node, box, style)
             return box
         }
         byNode[node.Id] = box
         return box
+    }
+
+    /// Adds the boxes of ::before and ::after where rules give them
+    /// content: first and last among the element's children.
+    func addPseudoElements(_ node: html.Node, _ box: Box, _ style: ComputedStyle) {
+        if !resolver.HasPseudoElements { return }
+        if let before = resolver.ResolvePseudo(node, "before", parent: style, context: context) {
+            if let made = pseudoBox(node, before) {
+                made.Parent = box
+                box.Children.insert(made, at: 0)
+                if box.Children.count > 1 { regroup(box) }
+            }
+        }
+        if let after = resolver.ResolvePseudo(node, "after", parent: style, context: context) {
+            if let made = pseudoBox(node, after) {
+                box.AppendChild(made)
+                if box.Children.count > 1 { regroup(box) }
+            }
+        }
+    }
+
+    /// The box of a pseudo-element: its display, holding its content
+    /// as text. attr() reads the element's attribute.
+    func pseudoBox(_ node: html.Node, _ style: ComputedStyle) -> Box? {
+        guard let parts = style.Content else { return nil }
+        var text = ""
+        for part in parts {
+            let b = [uint8](part.utf8)
+            if !b.isEmpty && b[0] == 1 {
+                text += node.GetAttribute(draw.stringOf(b, 1, b.count)) ?? ""
+            } else {
+                text += part
+            }
+        }
+        if style.Display == .none { return nil }
+        let kind = kindFor(style.Display)
+        let box = Box(kind: kind, style: style, node: nil)
+        box.IsAnonymous = true
+        if !text.isEmpty {
+            let t = Box(kind: .text, style: style, node: nil)
+            t.Text = text
+            box.AppendChild(t)
+        }
+        return box
+    }
+
+    /// Wraps inline runs again after a pseudo-element joined the
+    /// children, so blocks and inlines stay apart.
+    func regroup(_ box: Box) {
+        var made: [Box] = []
+        for c in box.Children {
+            if c.IsAnonymous && c.Kind == .block && c.Node == nil && c.Style.Content == nil {
+                // An anonymous wrapper from before: unwrap it.
+                for inner in c.Children { made.append(inner) }
+            } else {
+                made.append(c)
+            }
+        }
+        box.Children = []
+        place(made, into: box)
     }
 
     func kindFor(_ display: Display) -> BoxKind {

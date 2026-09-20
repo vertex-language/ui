@@ -36,6 +36,10 @@ public final class RuleSet {
     var byTag: [string: [StyleRule]] = [:]
     var universal: [StyleRule] = []
     var all: [StyleRule] = []
+    /// Rules on ::before and ::after, kept apart: they match an element's
+    /// generated content, not the element.
+    var before: [StyleRule] = []
+    var after: [StyleRule] = []
     var order: int32 = 0
     /// Whether any rule asks about pointer or keyboard state, which is
     /// what makes hovering or focusing worth a style recalculation.
@@ -106,6 +110,10 @@ public final class RuleSet {
     func bucket(_ r: StyleRule) {
         all.append(r)
         let last = r.Selector.Compounds[r.Selector.Compounds.count - 1].Part
+        if let pe = last.PseudoElement {
+            if pe == "before" { before.append(r) } else if pe == "after" { after.append(r) }
+            return
+        }
         if let id = last.Id {
             var list = byId[id] ?? []
             list.append(r)
@@ -275,6 +283,40 @@ public final class StyleResolver {
     public var UsesHover: bool { return Author.UsesHover || UA.UsesHover }
     public var UsesFocus: bool { return Author.UsesFocus || UA.UsesFocus }
     public var UsesActive: bool { return Author.UsesActive || UA.UsesActive }
+
+    /// Whether any rule generates content before or after elements.
+    public var HasPseudoElements: bool { return !UA.before.isEmpty || !UA.after.isEmpty || !Author.before.isEmpty || !Author.after.isEmpty }
+
+    /// The style of an element's ::before or ::after, or nil where no
+    /// rule gives it content.
+    public func ResolvePseudo(_ node: html.Node, _ which: string, parent: ComputedStyle, context: selector.MatchContext) -> ComputedStyle? {
+        let uaList = which == "before" ? UA.before : UA.after
+        let authorList = which == "before" ? Author.before : Author.after
+        if uaList.isEmpty && authorList.isEmpty { return nil }
+        var matched: [StyleRule] = []
+        for r in uaList where r.enabled {
+            if selector.MatchComplexIn(r.Selector, node, context, pseudoElement: which) { matched.append(r) }
+        }
+        for r in authorList where r.enabled {
+            if selector.MatchComplexIn(r.Selector, node, context, pseudoElement: which) { matched.append(r) }
+        }
+        if matched.isEmpty { return nil }
+        sortRules(&matched)
+        let style = ComputedStyle(inheriting: parent)
+        let ctx = ApplyContext(parent: parent, rootFontSize: RootFontSize, viewportWidth: ViewportWidth, viewportHeight: ViewportHeight)
+        var declarations: [Declaration] = []
+        for r in matched {
+            for d in r.Declarations where !d.Important { declarations.append(d) }
+        }
+        for r in matched {
+            for d in r.Declarations where d.Important { declarations.append(d) }
+        }
+        for d in declarations where d.Prop == .fontSize { apply(d, style, ctx) }
+        for d in declarations where d.Prop != .fontSize { apply(d, style, ctx) }
+        guard style.Content != nil else { return nil }
+        finish(style, node: node, root: false)
+        return style
+    }
 
     /// The style of an element, given its parent's.
     public func Resolve(_ node: html.Node, parent: ComputedStyle?, context: selector.MatchContext) -> ComputedStyle {
@@ -827,6 +869,8 @@ func apply(_ d: Declaration, _ s: ComputedStyle, _ ctx: ApplyContext) {
         if let k = keywordOf(v) { s.BorderCollapse = k == "collapse" ? .collapse : .separate }
     case .borderSpacing: if let p = pixels(v, s, ctx) { s.BorderSpacing = p }
     case .tabSize: if case .number(let n) = v { s.TabSize = int32(n) }
+    case .content:
+        if case .families(let parts) = v { s.Content = parts } else { s.Content = nil }
     }
 }
 
@@ -1086,6 +1130,7 @@ func copyProperty(_ p: Prop, from a: ComputedStyle, to b: ComputedStyle) {
     case .borderCollapse: b.BorderCollapse = a.BorderCollapse
     case .borderSpacing: b.BorderSpacing = a.BorderSpacing
     case .tabSize: b.TabSize = a.TabSize
+    case .content: b.Content = a.Content
     }
 }
 
