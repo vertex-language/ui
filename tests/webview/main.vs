@@ -8,6 +8,7 @@ import "ui/draw"
 import "ui/webview"
 
 typealias Display = webview.Display
+typealias Length = webview.Length
 
 var failures = 0
 
@@ -136,6 +137,12 @@ func testStyles() {
     check(shadow?.Shadows.count == 2 && shadow?.Shadows[0].Blur == 4 && shadow?.Shadows[1].Inset == true, "box-shadow list")
     let vw = styleOf("<div style='width: 50vw'>x</div>", "div")
     check(vw?.Width == .px(400), "vw against the resolver's 800px viewport")
+    let calc = styleOf("<div style='width: calc(100% - 20px); margin-left: calc(1em + 2px); font-size: 10px; height: calc(2 * 7px); padding: calc(3px + 1px) calc(50% / 2)'>x</div>", "div")!
+    check(calc.Width == .calc(-20, 100), "calc() of a percentage and pixels stays a calc (got \(calc.Width))")
+    check(calc.MarginLeft == .px(12), "calc() of em and px resolves (got \(calc.MarginLeft))")
+    check(calc.Height == .px(14) && calc.PaddingTop == .px(4) && calc.PaddingLeft == .percent(25), "calc() multiplies and divides (got \(calc.Height) \(calc.PaddingTop) \(calc.PaddingLeft))")
+    let mm = styleOf("<div style='width: min(30px, 20px); height: max(1px, 5px); margin-top: clamp(4px, 9px, 6px)'>x</div>", "div")!
+    check(mm.Width == .px(20) && mm.Height == .px(5) && mm.MarginTop == .px(6), "min(), max() and clamp() fold (got \(mm.Width) \(mm.Height) \(mm.MarginTop))")
 }
 
 // MARK: - Layout
@@ -219,6 +226,8 @@ func testBlockLayout() {
     check(w.rect("c")!.Width == 130, "content-box adds padding and border")
     check(w.rect("d")!.Width == 300, "max-width caps an auto width")
     check(w.rect("e")!.Width == 1000, "a wider box overflows rather than shrinks")
+    guard let cw = layoutOf("<body style='margin:0'><div id=a style='width:calc(100% - 100px);height:10px'></div></body>") else { check(false, "layout"); return }
+    check(cw.rect("a")!.Width == 700, "calc() resolves against the containing block in layout (got \(cw.rect("a")!.Width))")
 
     guard let h = layoutOf("<html style='height:100%'><body style='margin:0;height:100%'><div id=half style='height:50%'></div></body></html>", width: 800, height: 600) else { check(false, "layout"); return }
     check(h.rect("half")!.Height == 300, "percentage heights resolve against a definite chain (got \(h.rect("half")!.Height))")

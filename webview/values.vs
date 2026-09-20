@@ -10,6 +10,8 @@ public enum Length: Equatable {
     case none
     case px(float32)
     case percent(float32)
+    /// calc(): so many pixels plus so much of the base.
+    case calc(float32, float32)
     case minContent
     case maxContent
     case fitContent
@@ -23,6 +25,7 @@ public enum Length: Equatable {
         switch self {
         case .px(let v): return v
         case .percent(let p): return base * p / 100
+        case .calc(let v, let p): return v + base * p / 100
         default: return nil
         }
     }

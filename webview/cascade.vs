@@ -930,6 +930,20 @@ func length(_ v: Value, _ s: ComputedStyle, _ ctx: ApplyContext) -> Length? {
         }
     case .number(let n):
         return n == 0 ? .px(0) : nil
+    case .calc(let terms):
+        var px: float32 = 0
+        var percent: float32 = 0
+        for t in terms {
+            guard let unit = t.Unit else { px += t.Number; continue }
+            if unit == .percent {
+                percent += t.Number
+            } else if let l = length(.length(t.Number, unit), s, ctx), case .px(let v) = l {
+                px += v
+            }
+        }
+        if percent == 0 { return .px(px) }
+        if px == 0 { return .percent(percent) }
+        return .calc(px, percent)
     default:
         return nil
     }
@@ -941,6 +955,7 @@ func pixels(_ v: Value, _ s: ComputedStyle, _ ctx: ApplyContext) -> float32? {
     switch l {
     case .px(let p): return p
     case .percent(let p): return p * s.FontSize / 100
+    case .calc(let p, _): return p
     default: return nil
     }
 }

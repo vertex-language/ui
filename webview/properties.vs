@@ -119,6 +119,8 @@ public enum Value {
     case none
     case normal
     case length(float32, Unit)
+    /// calc(): terms in their units, summed at apply time.
+    case calc([CalcTerm])
     case number(float32)
     case keyword(string)
     case color(draw.Color)
@@ -130,6 +132,12 @@ public enum Value {
     case shadows([ShadowValue])
     case inherit
     case initial
+}
+
+/// One term of a calc(): a number in a unit, or unitless.
+public struct CalcTerm {
+    public var Number: float32
+    public var Unit: Unit?
 }
 
 /// A box-shadow before its lengths are resolved.
@@ -530,6 +538,154 @@ func parseLengthValue(_ t: css.Token, allowAuto: Bool) -> Value? {
     }
 }
 
+/// calc(...): a sum of terms, each a length or a number times a
+/// length; min(), max() and clamp() of lengths in one unit are folded.
+func parseCalc(_ tokens: [css.Token], _ start: int, _ end: int) -> Value? {
+    var terms: [CalcTerm] = []
+    if !calcSum(tokens, start, end, &terms, sign: 1) { return nil }
+    if terms.isEmpty { return nil }
+    return .calc(terms)
+}
+
+func calcSum(_ tokens: [css.Token], _ start: int, _ end: int, _ terms: inout [CalcTerm], sign: float32) -> bool {
+    var i = start
+    var currentSign = sign
+    while i < end {
+        let t = tokens[i]
+        if t.Kind == .delim && (t.Value == "+" || t.Value == "-") {
+            currentSign = t.Value == "-" ? -sign : sign
+            i += 1
+            continue
+        }
+        // A product: a term, times or divided by numbers.
+        var factor: float32 = 1
+        var term: CalcTerm? = nil
+        var j = i
+        var first = true
+        while j < end {
+            let u = tokens[j]
+            if !first && u.Kind == .delim && (u.Value == "+" || u.Value == "-") { break }
+            if u.Kind == .delim && (u.Value == "*" || u.Value == "/") {
+                let divide = u.Value == "/"
+                j += 1
+                if j < end && tokens[j].Kind == .number {
+                    let n = tokens[j].NumberVal
+                    if divide { if n != 0 { factor /= n } } else { factor *= n }
+                    j += 1
+                    continue
+                }
+                return false
+            }
+            if u.Kind == .function || u.Kind == .openParen {
+                let close = closeParen(tokens, from: j + 1)
+                var inner: [CalcTerm] = []
+                if u.Kind == .function && (lower(u.Value) == "min" || lower(u.Value) == "max" || lower(u.Value) == "clamp") {
+                    if let folded = foldMinMax(lower(u.Value), tokens, j + 1, close) {
+                        term = folded
+                    } else {
+                        return false
+                    }
+                } else if calcSum(tokens, j + 1, close, &inner, sign: 1) && inner.count == 1 {
+                    term = inner[0]
+                } else if calcSum(tokens, j + 1, close, &inner, sign: 1) {
+                    // A nested sum: spread its terms.
+                    for t2 in inner { terms.append(CalcTerm(Number: t2.Number * currentSign, Unit: t2.Unit)) }
+                    j = close + 1
+                    first = false
+                    term = nil
+                    if j >= end { return true }
+                    continue
+                } else {
+                    return false
+                }
+                j = close + 1
+                first = false
+                continue
+            }
+            if u.Kind == .dimension, let parsed = parseLengthValue(u, allowAuto: false), case .length(let n, let unit) = parsed {
+                term = CalcTerm(Number: n, Unit: unit)
+            } else if u.Kind == .percentage {
+                term = CalcTerm(Number: u.NumberVal, Unit: .percent)
+            } else if u.Kind == .number {
+                if term == nil && j + 1 < end && tokens[j + 1].Kind == .delim && tokens[j + 1].Value == "*" {
+                    factor *= u.NumberVal
+                    j += 2
+                    first = false
+                    continue
+                }
+                term = CalcTerm(Number: u.NumberVal, Unit: nil)
+            } else {
+                return false
+            }
+            j += 1
+            first = false
+        }
+        if let t = term {
+            terms.append(CalcTerm(Number: t.Number * factor * currentSign, Unit: t.Unit))
+        }
+        i = j
+    }
+    return true
+}
+
+/// min(), max() or clamp() of arguments that are all one unit, as one term.
+func foldMinMax(_ name: string, _ tokens: [css.Token], _ start: int, _ end: int) -> CalcTerm? {
+    var args: [[CalcTerm]] = []
+    var current: [CalcTerm] = []
+    var i = start
+    var argStart = start
+    var depth = 0
+    while i <= end {
+        if i == end || (tokens[i].Kind == .comma && depth == 0) {
+            current = []
+            if !calcSum(tokens, argStart, i, &current, sign: 1) { return nil }
+            args.append(current)
+            argStart = i + 1
+        } else if tokens[i].Kind == .function || tokens[i].Kind == .openParen {
+            depth += 1
+        } else if tokens[i].Kind == .closeParen {
+            depth -= 1
+        }
+        i += 1
+    }
+    if args.isEmpty { return nil }
+    var values: [float32] = []
+    var unit: Unit? = nil
+    for a in args {
+        if a.count != 1 { return nil }
+        if values.isEmpty { unit = a[0].Unit } else if a[0].Unit != unit { return nil }
+        values.append(a[0].Number)
+    }
+    var out = values[0]
+    if name == "min" {
+        for v in values where v < out { out = v }
+    } else if name == "max" {
+        for v in values where v > out { out = v }
+    } else if values.count == 3 {
+        out = values[1]
+        if out < values[0] { out = values[0] }
+        if out > values[2] { out = values[2] }
+    }
+    return CalcTerm(Number: out, Unit: unit)
+}
+
+/// A calc(), min(), max() or clamp() at the start of a value.
+func calcValue(_ tokens: [css.Token]) -> Value? {
+    if tokens.isEmpty || tokens[0].Kind != .function { return nil }
+    let name = lower(tokens[0].Value)
+    let end = closeParen(tokens, from: 1)
+    if name == "calc" || name == "-webkit-calc" {
+        return parseCalc(tokens, 1, end)
+    }
+    if name == "min" || name == "max" || name == "clamp" {
+        if let t = foldMinMax(name, tokens, 1, end) {
+            if let u = t.Unit { return .length(t.Number, u) }
+            return .number(t.Number)
+        }
+    }
+    return nil
+}
+
 /// One to four lengths, as the sides shorthands take them.
 func fourSides(_ tokens: [css.Token], allowAuto: Bool) -> [Value]? {
     return fourValues(tokens) { t in parseLengthValue(t, allowAuto: allowAuto) }
@@ -537,9 +693,24 @@ func fourSides(_ tokens: [css.Token], allowAuto: Bool) -> [Value]? {
 
 func fourValues(_ tokens: [css.Token], _ parse: (css.Token) -> Value?) -> [Value]? {
     var vals: [Value] = []
-    for t in tokens {
+    var i = 0
+    while i < tokens.count {
+        let t = tokens[i]
+        if t.Kind == .function {
+            // A calc() among the sides.
+            let end = closeParen(tokens, from: i + 1)
+            var slice: [css.Token] = []
+            var k = i
+            while k <= end && k < tokens.count { slice.append(tokens[k]); k += 1 }
+            guard let v = calcValue(slice) else { return nil }
+            vals.append(v)
+            i = end + 1
+            if vals.count == 4 { break }
+            continue
+        }
         guard let v = parse(t) else { return nil }
         vals.append(v)
+        i += 1
         if vals.count == 4 { break }
     }
     switch vals.count {
@@ -847,16 +1018,21 @@ func parseValue(_ prop: Prop, _ tokens: [css.Token]) -> Value? {
         default: return nil
         }
     case .top, .right, .bottom, .left, .width, .height, .flexBasis:
+        if let c = calcValue(tokens) { return c }
         return parseLengthValue(t, allowAuto: true)
     case .minWidth, .minHeight:
         if kw == "auto" { return .auto }
+        if let c = calcValue(tokens) { return c }
         return parseLengthValue(t, allowAuto: false)
     case .maxWidth, .maxHeight:
         if kw == "none" { return .none }
+        if let c = calcValue(tokens) { return c }
         return parseLengthValue(t, allowAuto: false)
     case .marginTop, .marginRight, .marginBottom, .marginLeft:
+        if let c = calcValue(tokens) { return c }
         return parseLengthValue(t, allowAuto: true)
     case .paddingTop, .paddingRight, .paddingBottom, .paddingLeft, .textIndent, .rowGap, .columnGap:
+        if let c = calcValue(tokens) { return c }
         return parseLengthValue(t, allowAuto: false)
     case .borderTopWidth, .borderRightWidth, .borderBottomWidth, .borderLeftWidth, .outlineWidth:
         return parseBorderWidth(t)
