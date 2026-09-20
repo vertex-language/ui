@@ -209,6 +209,17 @@ final class DisplayListBuilder {
         }
         if clips {
             items.append(PaintItem.unclip)
+            // A scroll container whose content overflows shows a thin bar
+            // where it is scrolled to.
+            if s.IsScrollContainer && box.ContentHeight > box.InnerHeight + 0.5 && box.InnerHeight > 20 {
+                let trackTop = y + box.Border.Top + 2
+                let trackHeight = box.PaddingBoxHeight - 4
+                let thumb = trackHeight * box.InnerHeight / box.ContentHeight
+                let maxScroll = box.ContentHeight - box.InnerHeight
+                let thumbY = trackTop + (trackHeight - thumb) * (maxScroll > 0 ? box.ScrollY / maxScroll : 0)
+                let bar = draw.Rect(x + box.Width - box.Border.Right - 8, thumbY, 5, thumb)
+                items.append(.fill(bar, color(draw.Color(0, 0, 0, 80)), draw.Radii(all: 2.5)))
+            }
         }
         if s.Visibility == .visible && s.OutlineWidth > 0 && box.Node != nil && box.Node!.Id == focused {
             let w = s.OutlineWidth
