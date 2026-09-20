@@ -78,6 +78,11 @@ public final class ComputedStyle {
     public var RowGap: Length = .px(0)
     public var ColumnGap: Length = .px(0)
     public var TableLayout: TableLayout = .auto
+    public var GridColumns: [GridTrack] = []
+    public var GridRows: [GridTrack] = []
+    public var GridAutoRows: GridTrack = .auto
+    public var GridColumn: GridPlacement = GridPlacement.auto
+    public var GridRow: GridPlacement = GridPlacement.auto
 
     // Inherited.
     public var Color: draw.Color = draw.Color.black
@@ -174,6 +179,7 @@ public final class ComputedStyle {
     public var IsPositioned: bool { return Position != .static }
     public var IsOutOfFlow: bool { return Position == .absolute || Position == .fixed || Float != .none }
     public var IsFlexContainer: bool { return Display == .flex || Display == .inlineFlex }
+    public var IsGridContainer: bool { return Display == .grid || Display == .inlineGrid }
     public var HasBorderRadius: bool { return !BorderRadius.IsZero }
 
     /// Whether the box clips or scrolls what overflows it.

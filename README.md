@@ -75,9 +75,10 @@ func main() async -> int32 {
   white-space handling, line breaking at spaces and inside words where
   `overflow-wrap` allows, baseline alignment, `text-align`, `text-overflow`;
   inline-blocks; images and form controls; floats and `clear`; flexbox rows and
-  columns with wrap, grow, shrink, gaps and alignment; tables with automatic
+  columns with wrap, grow, shrink, gaps and alignment; grid with fixed, fr
+  and auto tracks, repeat() and auto-fill, spans and placement; tables with automatic
   column widths, colspan, row groups and captions; absolute, fixed and relative
-  positioning; `overflow` clipping and scrolling.
+  sticky positioning; `overflow` clipping and scrolling; `calc()`.
 - **Paint**: backgrounds with colors, gradients and images (sized, placed,
   tiled), rounded corners, borders in every style, box shadows, text with
   decorations, opacity, `visibility`, `z-index`, and a display list that

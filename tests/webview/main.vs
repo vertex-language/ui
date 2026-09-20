@@ -443,6 +443,31 @@ func testPseudoElements() {
     check(l.rect("c")!.Height == 35 && l.rect("after")!.Y == l.rect("c")!.Y + 35, "a clearing ::after block contains the float (got \(l.rect("c")!.Height))")
 }
 
+func testGrid() {
+    print("Grid")
+    guard let l = layoutOf("<body style='margin:0'><div id=g style='display:grid;grid-template-columns:100px 1fr 2fr;gap:10px;width:600px'><div id=a style='height:20px'></div><div id=b style='height:30px'></div><div id=c></div><div id=d style='height:15px'></div></div></body>") else { check(false, "layout"); return }
+    let a = l.rect("a")!
+    let b = l.rect("b")!
+    let c = l.rect("c")!
+    let d = l.rect("d")!
+    check(a.Width == 100 && near(b.Width, 160) && near(c.Width, 320), "columns take their lengths and fr shares (got \(a.Width) \(b.Width) \(c.Width))")
+    check(a.X == 0 && near(b.X, 110) && near(c.X, 280), "columns are placed with the gap")
+    check(near(a.Height, 20) && near(c.Height, 30), "auto-height items stretch to the row's height (got \(a.Height) \(c.Height))")
+    check(d.X == 0 && near(d.Y, 40), "the fourth item wraps to the next row after the gap (got \(d.X) \(d.Y))")
+    check(near(l.rect("g")!.Height, 55), "the grid is as tall as its rows and gaps (got \(l.rect("g")!.Height))")
+
+    guard let sp = layoutOf("<body style='margin:0'><div style='display:grid;grid-template-columns:repeat(3, 1fr);width:300px'><div id=wide style='grid-column:span 2;height:10px'></div><div id=one style='height:10px'></div><div id=two style='grid-column:2 / 4;height:10px'></div></div></body>") else { check(false, "layout"); return }
+    check(sp.rect("wide")!.Width == 200 && sp.rect("one")!.X == 200, "span 2 covers two columns and the next item follows")
+    check(sp.rect("two")!.X == 100 && sp.rect("two")!.Width == 200 && sp.rect("two")!.Y == 10, "grid-column with lines places on the next row")
+
+    guard let af = layoutOf("<body style='margin:0'><div style='display:grid;grid-template-columns:repeat(auto-fill, minmax(120px, 1fr));gap:20px;width:440px'><div id=a1 style='height:10px'></div><div id=a2 style='height:10px'></div><div id=a3 style='height:10px'></div><div id=a4 style='height:10px'></div></div></body>") else { check(false, "layout"); return }
+    check(near(af.rect("a1")!.Width, 133.33, 0.1) && af.rect("a4")!.Y == 30, "auto-fill makes as many columns as fit (got width \(af.rect("a1")!.Width), a4 at y \(af.rect("a4")!.Y))")
+
+    guard let au = layoutOf("<body style='margin:0;font-size:16px'><div style='display:grid;grid-template-columns:auto 1fr;width:400px'><div id=k style='white-space:nowrap'>label</div><div id=v style='height:10px'></div></div></body>") else { check(false, "layout"); return }
+    let k = au.rect("k")!
+    check(k.Width > 20 && k.Width < 60 && near(au.rect("v")!.X, k.Width) && near(au.rect("v")!.Width, 400 - k.Width), "an auto column fits its content and fr takes the rest (got \(k.Width))")
+}
+
 func testPositioning() {
     print("Positioning")
     guard let l = layoutOf("<body style='margin:0'><div id=rel style='position:relative;width:300px;height:200px;margin-left:50px'><div id=abs style='position:absolute;top:10px;right:20px;width:100px;height:30px'></div><div id=full style='position:absolute;left:0;right:0;bottom:0;height:10px'></div></div><div id=fixed style='position:fixed;left:5px;top:6px;width:7px;height:8px'></div></body>") else { check(false, "layout"); return }
@@ -680,6 +705,7 @@ func main() -> int32 {
     testTables()
     testWrapping()
     testPseudoElements()
+    testGrid()
     testView()
     if failures == 0 {
         print("ALL WEBVIEW CHECKS PASSED")

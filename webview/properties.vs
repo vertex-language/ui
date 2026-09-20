@@ -73,6 +73,11 @@ public enum Prop: int32 {
     case rowGap
     case columnGap
     case tableLayout
+    case gridTemplateColumns
+    case gridTemplateRows
+    case gridAutoRows
+    case gridColumn
+    case gridRow
     case color
     case fontFamily
     case fontSize
@@ -130,6 +135,8 @@ public enum Value {
     case url(string)
     case gradient(draw.LinearGradient)
     case shadows([ShadowValue])
+    case tracks([GridTrack])
+    case placement(GridPlacement)
     case inherit
     case initial
 }
@@ -188,6 +195,8 @@ let propNames: [string: Prop] = [
     "align-items": .alignItems, "align-self": .alignSelf, "align-content": .alignContent,
     "flex-grow": .flexGrow, "flex-shrink": .flexShrink, "flex-basis": .flexBasis, "order": .order,
     "row-gap": .rowGap, "column-gap": .columnGap, "table-layout": .tableLayout,
+    "grid-template-columns": .gridTemplateColumns, "grid-template-rows": .gridTemplateRows,
+    "grid-auto-rows": .gridAutoRows, "grid-column": .gridColumn, "grid-row": .gridRow,
     "color": .color, "font-family": .fontFamily, "font-size": .fontSize, "font-weight": .fontWeight,
     "font-style": .fontStyle, "line-height": .lineHeight, "text-align": .textAlign,
     "text-transform": .textTransform, "text-indent": .textIndent, "letter-spacing": .letterSpacing,
@@ -381,7 +390,7 @@ public func ParseDeclaration(_ d: css.Declaration) -> [Declaration] {
          "transition", "animation", "transform", "quotes", "counter-reset", "counter-increment",
          "background-attachment",
          "font-variant", "font-stretch", "font-feature-settings", "src", "unicode-range",
-         "grid-template-columns", "grid-template-rows", "grid-area", "grid-column", "grid-row",
+         "grid-area",
          "user-select", "pointer-events", "appearance", "-webkit-appearance", "resize", "scroll-behavior",
          "text-rendering", "-webkit-font-smoothing", "-moz-osx-font-smoothing", "filter", "backdrop-filter",
          "clip-path", "object-fit", "aspect-ratio", "will-change", "contain", "isolation",
@@ -397,7 +406,7 @@ public func ParseDeclaration(_ d: css.Declaration) -> [Declaration] {
          "inset-block", "margin-inline", "margin-block", "padding-inline", "padding-block",
          "border-inline", "border-block", "min-inline-size", "max-inline-size", "inline-size", "block-size",
          "place-content", "place-self", "justify-items", "justify-self", "grid", "grid-template",
-         "grid-template-areas", "grid-auto-flow", "grid-auto-rows", "grid-auto-columns":
+         "grid-template-areas", "grid-auto-flow", "grid-auto-columns":
         break
     default:
         // margin-inline-start and friends, in a left-to-right, top-to-bottom world.
@@ -1110,6 +1119,15 @@ func parseValue(_ prop: Prop, _ tokens: [css.Token]) -> Value? {
     case .tableLayout:
         if kw == "auto" || kw == "fixed" { return .keyword(kw) }
         return nil
+    case .gridTemplateColumns, .gridTemplateRows:
+        if kw == "none" { return .none }
+        let tracks = parseTracks(tokens, 0, tokens.count)
+        return tracks.isEmpty ? nil : .tracks(tracks)
+    case .gridAutoRows:
+        let tracks = parseTracks(tokens, 0, tokens.count)
+        return tracks.isEmpty ? nil : .tracks(tracks)
+    case .gridColumn, .gridRow:
+        return .placement(parsePlacement(tokens))
     case .boxSizing:
         if kw == "content-box" || kw == "border-box" { return .keyword(kw) }
         return nil
@@ -1371,4 +1389,107 @@ func parseBackgroundPosition(_ tokens: [css.Token]) -> Value? {
     }
     if words.isEmpty { return nil }
     return .keyword(joinWords(words))
+}
+
+/// Grid tracks: lengths, fr, auto, minmax(), repeat(n, ...) and
+/// repeat(auto-fill|auto-fit, ...) written as a negative repeat count.
+func parseTracks(_ tokens: [css.Token], _ start: int, _ end: int) -> [GridTrack] {
+    var out: [GridTrack] = []
+    var i = start
+    while i < end {
+        let t = tokens[i]
+        if t.Kind == .function {
+            let name = lower(t.Value)
+            let close = closeParen(tokens, from: i + 1)
+            if name == "repeat" {
+                // The count, then a comma, then the tracks.
+                var j = i + 1
+                var count = 0
+                var autoFill = false
+                if j < close && tokens[j].Kind == .number { count = int(tokens[j].NumberVal) }
+                if j < close && tokens[j].Kind == .ident { autoFill = true }
+                while j < close && tokens[j].Kind != .comma { j += 1 }
+                let inner = parseTracks(tokens, j + 1, close)
+                if autoFill {
+                    // Marked for layout to count: as many as fit, the
+                    // marker being a negative fr after them.
+                    for tr in inner { out.append(tr) }
+                    out.append(.fr(-1))
+                } else {
+                    var k = 0
+                    while k < count && k < 1000 {
+                        for tr in inner { out.append(tr) }
+                        k += 1
+                    }
+                }
+            } else if name == "minmax" {
+                var minValue: float32 = 0
+                var maxValue: float32 = 0
+                var maxFr: float32 = 0
+                var j = i + 1
+                var parts: [GridTrack] = []
+                while j < close {
+                    if tokens[j].Kind != .comma {
+                        let one = parseTracks(tokens, j, j + 1)
+                        if !one.isEmpty { parts.append(one[0]) }
+                    }
+                    j += 1
+                }
+                if parts.count >= 1, case .length(let l) = parts[0], case .px(let v) = l { minValue = v }
+                if parts.count >= 2 {
+                    if case .length(let l) = parts[1], case .px(let v) = l { maxValue = v }
+                    if case .fr(let f) = parts[1] { maxFr = f }
+                }
+                out.append(.minmax(minValue, maxValue, maxFr))
+            } else if name == "fit-content" {
+                out.append(.auto)
+            }
+            i = close + 1
+            continue
+        }
+        if t.Kind == .dimension && t.Unit == "fr" {
+            out.append(.fr(t.NumberVal))
+        } else if t.Kind == .ident {
+            let kw = lower(t.Value)
+            if kw == "auto" || kw == "min-content" || kw == "max-content" { out.append(.auto) }
+        } else if t.Kind == .openBracket {
+            // Line names: skipped.
+            while i < end && tokens[i].Kind != .closeBracket { i += 1 }
+        } else if let l = parseLengthValue(t, allowAuto: false), case .length(let n, let unit) = l {
+            if unit == .percent { out.append(.length(.percent(n))) }
+            else if unit == .px { out.append(.length(.px(n))) }
+            else { out.append(.length(.px(n * 16))) }
+        }
+        i += 1
+    }
+    return out
+}
+
+/// grid-column / grid-row: `2`, `span 2`, `1 / 3`, `1 / span 2`, `auto`.
+func parsePlacement(_ tokens: [css.Token]) -> GridPlacement {
+    var start: int32 = 0
+    var end: int32 = 0
+    var span: int32 = 0
+    var afterSlash = false
+    var spanNext = false
+    for t in tokens {
+        if t.Kind == .delim && t.Value == "/" { afterSlash = true; spanNext = false; continue }
+        if t.Kind == .ident && lower(t.Value) == "span" { spanNext = true; continue }
+        if t.Kind == .number {
+            let n = int32(t.NumberVal)
+            if spanNext {
+                span = n
+                spanNext = false
+            } else if afterSlash {
+                end = n
+            } else {
+                start = n
+            }
+        }
+    }
+    var p = GridPlacement(start: start, span: 1)
+    if span > 0 { p.Span = span }
+    if start > 0 && end > start { p.Span = end - start }
+    if start == 0 && end > 0 && span == 0 { p.Start = end - 1 }
+    return p
 }

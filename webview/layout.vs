@@ -179,6 +179,8 @@ public final class Layout {
             height = layoutTable(box, contentWidth: contentWidth, flow: flow)
         } else if box.Style.IsFlexContainer {
             height = layoutFlex(box, contentWidth: contentWidth, flow: flow)
+        } else if box.Style.IsGridContainer {
+            height = layoutGrid(box, contentWidth: contentWidth, flow: flow)
         } else if box.HasInlineChildren {
             height = layoutInline(box, contentWidth: contentWidth, flow: flow)
         } else {

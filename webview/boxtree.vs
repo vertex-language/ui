@@ -76,7 +76,7 @@ public final class BoxTreeBuilder {
             flushInline(&run, into: parent)
             return
         }
-        let flex = parent.Style.IsFlexContainer
+        let flex = parent.Style.IsFlexContainer || parent.Style.IsGridContainer
         if flex {
             // Every child element is a flex item, blockified; a run of
             // text between them becomes an anonymous block item, and
@@ -345,7 +345,7 @@ public final class BoxTreeBuilder {
     func kindFor(_ display: Display) -> BoxKind {
         switch display {
         case .inline: return .inline
-        case .inlineBlock, .inlineFlex, .inlineTable: return .inlineBlock
+        case .inlineBlock, .inlineFlex, .inlineGrid, .inlineTable: return .inlineBlock
         default: return .block
         }
     }

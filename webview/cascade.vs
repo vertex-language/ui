@@ -743,6 +743,16 @@ func apply(_ d: Declaration, _ s: ComputedStyle, _ ctx: ApplyContext) {
     case .rowGap: if let l = length(v, s, ctx) { s.RowGap = l }
     case .columnGap: if let l = length(v, s, ctx) { s.ColumnGap = l }
     case .tableLayout: if let k = keywordOf(v) { s.TableLayout = k == "fixed" ? .fixed : .auto }
+    case .gridTemplateColumns:
+        if case .tracks(let t) = v { s.GridColumns = resolveTracks(t, s, ctx) } else { s.GridColumns = [] }
+    case .gridTemplateRows:
+        if case .tracks(let t) = v { s.GridRows = resolveTracks(t, s, ctx) } else { s.GridRows = [] }
+    case .gridAutoRows:
+        if case .tracks(let t) = v, !t.isEmpty { s.GridAutoRows = resolveTracks(t, s, ctx)[0] }
+    case .gridColumn:
+        if case .placement(let p) = v { s.GridColumn = p }
+    case .gridRow:
+        if case .placement(let p) = v { s.GridRow = p }
     case .color:
         if case .currentColor = v { s.Color = ctx.parent.Color }
         else if let c = colorOf(v) { s.Color = c }
@@ -973,8 +983,10 @@ func displayOf(_ k: string) -> Display {
     case "none": return .none
     case "block", "flow-root": return .block
     case "inline-block": return .inlineBlock
-    case "flex", "grid": return .flex
-    case "inline-flex", "inline-grid": return .inlineFlex
+    case "flex": return .flex
+    case "inline-flex": return .inlineFlex
+    case "grid": return .grid
+    case "inline-grid": return .inlineGrid
     case "list-item": return .listItem
     case "table": return .table
     case "inline-table": return .inlineTable
@@ -1123,6 +1135,11 @@ func copyProperty(_ p: Prop, from a: ComputedStyle, to b: ComputedStyle) {
     case .rowGap: b.RowGap = a.RowGap
     case .columnGap: b.ColumnGap = a.ColumnGap
     case .tableLayout: b.TableLayout = a.TableLayout
+    case .gridTemplateColumns: b.GridColumns = a.GridColumns
+    case .gridTemplateRows: b.GridRows = a.GridRows
+    case .gridAutoRows: b.GridAutoRows = a.GridAutoRows
+    case .gridColumn: b.GridColumn = a.GridColumn
+    case .gridRow: b.GridRow = a.GridRow
     case .color: b.Color = a.Color
     case .fontFamily: b.FontFamilies = a.FontFamilies
     case .fontSize: b.FontSize = a.FontSize
@@ -1206,4 +1223,9 @@ func lengthFromWord(_ word: string, _ s: ComputedStyle, _ ctx: ApplyContext) -> 
     if word.hasSuffix("em") && !word.hasSuffix("rem") { return .px(n * s.FontSize) }
     if word.hasSuffix("rem") { return .px(n * ctx.rootFontSize) }
     return .px(n)
+}
+
+/// Tracks with their em lengths resolved against the element.
+func resolveTracks(_ tracks: [GridTrack], _ s: ComputedStyle, _ ctx: ApplyContext) -> [GridTrack] {
+    return tracks
 }

@@ -125,7 +125,7 @@ public final class Box {
     /// margins do not collapse through it and floats stay inside.
     public var IsFormattingRoot: bool {
         if Kind != .block { return true }
-        if Style.IsOutOfFlow || Style.ClipsOverflow || Style.IsFlexContainer { return true }
+        if Style.IsOutOfFlow || Style.ClipsOverflow || Style.IsFlexContainer || Style.IsGridContainer { return true }
         if Style.Display == .table || Style.Display == .tableCell || Style.Display == .inlineBlock { return true }
         return false
     }
