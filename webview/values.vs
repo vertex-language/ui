@@ -288,18 +288,47 @@ public struct TextDecoration: Equatable {
     }
 }
 
-/// A background image, when the page sets one: kept by URL and drawn
-/// where a loader has answered.
-public struct BackgroundImage: Equatable {
-    public var URL: string
-    public var Repeat: bool
-    public var Cover: bool
+public enum BackgroundSize: Equatable {
+    case auto
+    case cover
+    case contain
+    case length(Length, Length)
+}
 
-    public init(url: string, repeats: bool = true, cover: bool = false) {
+/// A background image: a picture by URL, drawn once a loader has
+/// answered, or a gradient. How it repeats, where it sits and how big
+/// it is come from the other background properties.
+public struct BackgroundImage {
+    public var URL: string
+    public var Gradient: draw.LinearGradient?
+    public var RepeatX: bool
+    public var RepeatY: bool
+    public var Size: BackgroundSize
+    /// Position as fractions of the free space: 0 left/top, 0.5 centre, 1 right/bottom.
+    public var PositionX: float32
+    public var PositionY: float32
+
+    public init(url: string) {
         URL = url
-        Repeat = repeats
-        Cover = cover
+        Gradient = nil
+        RepeatX = true
+        RepeatY = true
+        Size = .auto
+        PositionX = 0
+        PositionY = 0
     }
+
+    public init(gradient: draw.LinearGradient) {
+        URL = ""
+        Gradient = gradient
+        RepeatX = false
+        RepeatY = false
+        Size = .auto
+        PositionX = 0
+        PositionY = 0
+    }
+
+    public var IsGradient: bool { return Gradient != nil }
 }
 
 /// One shadow of box-shadow.

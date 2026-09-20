@@ -257,14 +257,25 @@ public struct Canvas {
     }
 
     /// Draws an image into a rectangle, resampling where the sizes
-    /// differ: box-filtered when shrinking, bilinear when growing.
-    public func DrawImage(_ img: Image, into dst: IRect, opacity: float32 = 1) {
+    /// differ: box-filtered when shrinking, bilinear when growing. With
+    /// a shape, only the part of the image inside that rounded
+    /// rectangle shows, its curves anti-aliased.
+    public func DrawImage(_ img: Image, into dst: IRect, opacity: float32 = 1, shape: IRect? = nil, radii: Radii? = nil) {
         if img.Width <= 0 || img.Height <= 0 || dst.IsEmpty { return }
-        let target = dst.Intersect(Clip)
+        var target = dst.Intersect(Clip)
+        var shapeRect = dst
+        if let sh = shape {
+            target = target.Intersect(sh)
+            shapeRect = sh
+        }
         if target.IsEmpty { return }
         let alpha = opacity >= 1 ? uint32(255) : uint32(clamp01(opacity) * 255 + 0.5)
         if alpha == 0 { return }
         let sameSize = dst.Width == img.Width && dst.Height == img.Height
+        var shapeRadii = Radii(0, 0, 0, 0)
+        if let r = radii { shapeRadii = r }
+        let rounded = shape != nil && !shapeRadii.IsZero
+        let curve = RoundedRect(rect: shapeRect, radii: shapeRadii.Fitted(float32(shapeRect.Width), float32(shapeRect.Height)))
         img.Pixels.withUnsafeBytes { ip in
             let ibase = UnsafePointer<uint32>(UnsafeRawPointer(ip.baseAddress!))
             var y = target.Y
@@ -279,6 +290,10 @@ public struct Canvas {
                         s = sample(ibase, img.Width, img.Height, x - dst.X, y - dst.Y, dst.Width, dst.Height)
                     }
                     if alpha < 255 { s = scalePacked(s, alpha) }
+                    if rounded {
+                        let cov = curve.coverage(x, y)
+                        if cov <= 0 { s = 0 } else if cov < 255 { s = scalePacked(s, uint32(cov)) }
+                    }
                     let sa = s >> 24
                     if sa == 255 {
                         p.pointee = s

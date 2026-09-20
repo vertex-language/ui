@@ -8,6 +8,7 @@ public enum PaintKind: Equatable {
     case border
     case text
     case image
+    case gradient
     case clip
     case unclip
 }
@@ -29,6 +30,13 @@ public struct PaintItem {
     public var LetterSpacing: float32
     public var Image: draw.Image?
     public var Opacity: float32
+    /// An image's tile size and whether it repeats each way; the rect is
+    /// the area it covers.
+    public var TileWidth: float32
+    public var TileHeight: float32
+    public var RepeatX: bool
+    public var RepeatY: bool
+    public var Gradient: draw.LinearGradient?
 
     init(_ kind: PaintKind) {
         Kind = kind
@@ -43,6 +51,11 @@ public struct PaintItem {
         LetterSpacing = 0
         Image = nil
         Opacity = 1
+        TileWidth = 0
+        TileHeight = 0
+        RepeatX = false
+        RepeatY = false
+        Gradient = nil
     }
 
     static func fill(_ r: draw.Rect, _ c: draw.Color, _ radii: draw.Radii) -> PaintItem {
@@ -80,6 +93,30 @@ public struct PaintItem {
         return it
     }
 
+    static func gradient(_ r: draw.Rect, _ g: draw.LinearGradient, _ radii: draw.Radii) -> PaintItem {
+        var it = PaintItem(.gradient)
+        it.Rect = r
+        it.Gradient = g
+        it.Radii = radii
+        return it
+    }
+
+    static func tiles(_ area: draw.Rect, _ img: draw.Image, tileWidth: float32, tileHeight: float32,
+                      originX: float32, originY: float32, repeatX: Bool, repeatY: Bool, opacity: float32, radii: draw.Radii) -> PaintItem {
+        var it = PaintItem(.image)
+        it.Rect = area
+        it.Radii = radii
+        it.Image = img
+        it.TileWidth = tileWidth
+        it.TileHeight = tileHeight
+        it.X = originX
+        it.Y = originY
+        it.RepeatX = repeatX
+        it.RepeatY = repeatY
+        it.Opacity = opacity
+        return it
+    }
+
     static func clip(_ r: draw.Rect) -> PaintItem {
         var it = PaintItem(.clip)
         it.Rect = r
@@ -105,6 +142,8 @@ final class DisplayListBuilder {
     var caret: int = -1
     var caretVisible: bool = true
     var opacity: float32 = 1
+    /// The page's images by URL, for backgrounds.
+    var images: [string: draw.Image] = [:]
 
     init() {}
 
@@ -260,8 +299,54 @@ final class DisplayListBuilder {
         let rect = draw.Rect(x, y, box.Width, box.Height)
         var radii = s.BorderRadius
         if !radii.IsZero { radii = radii.Fitted(box.Width, box.Height) }
+        // Shadows go under the box: each drawn as rings from the blur's
+        // outer edge inward, which fades like a blur near enough.
+        for sh in s.Shadows where !sh.Inset && sh.Color.A > 0 {
+            let steps = sh.Blur > 1 ? (sh.Blur > 12 ? 12 : int(sh.Blur)) : 1
+            let each = color(sh.Color).Faded(1 / float32(steps))
+            var i = 0
+            while i < steps {
+                let grow = sh.Spread + sh.Blur / 2 - sh.Blur * float32(i) / float32(steps)
+                let r = draw.Rect(x + sh.X - grow, y + sh.Y - grow, box.Width + 2 * grow, box.Height + 2 * grow)
+                if r.Width > 0 && r.Height > 0 {
+                    items.append(.fill(r, each, draw.Radii(all: (radii.IsZero ? 0 : radii.TopLeft) + grow)))
+                }
+                i += 1
+            }
+        }
         if s.BackgroundColor.A > 0 {
             items.append(.fill(rect, color(s.BackgroundColor), radii))
+        }
+        if let bg = s.BackgroundImage {
+            let paddingBox = draw.Rect(x + box.Border.Left, y + box.Border.Top, box.PaddingBoxWidth, box.PaddingBoxHeight)
+            if let g = bg.Gradient {
+                items.append(.gradient(paddingBox, g, radii.Inset(box.Border)))
+            } else if !bg.URL.isEmpty, let img = images[bg.URL], img.Width > 0 && img.Height > 0 {
+                var tw = float32(img.Width)
+                var th = float32(img.Height)
+                switch bg.Size {
+                case .cover:
+                    let scale = maxf(paddingBox.Width / tw, paddingBox.Height / th)
+                    tw *= scale
+                    th *= scale
+                case .contain:
+                    let scale = minf(paddingBox.Width / tw, paddingBox.Height / th)
+                    tw *= scale
+                    th *= scale
+                case .length(let w, let h):
+                    let rw = w.Resolve(paddingBox.Width)
+                    let rh = h.Resolve(paddingBox.Height)
+                    if let a = rw, let b = rh { tw = a; th = b }
+                    else if let a = rw { th = th * a / tw; tw = a }
+                    else if let b = rh { tw = tw * b / th; th = b }
+                case .auto:
+                    break
+                }
+                let ox = paddingBox.X + (paddingBox.Width - tw) * bg.PositionX
+                let oy = paddingBox.Y + (paddingBox.Height - th) * bg.PositionY
+                items.append(.tiles(paddingBox, img, tileWidth: tw, tileHeight: th, originX: ox, originY: oy,
+                                    repeatX: bg.RepeatX, repeatY: bg.RepeatY, opacity: opacity, radii: radii.Inset(box.Border)))
+            }
         }
         let widths = box.Border
         if widths.Top > 0 || widths.Right > 0 || widths.Bottom > 0 || widths.Left > 0 {
@@ -555,9 +640,53 @@ func rasterize(_ items: [PaintItem], on base: draw.Canvas, scale: float32, origi
                 }
             }
         case .image:
+            guard let img = item.Image else { continue }
+            if item.TileWidth <= 0 {
+                let dr = device(item.Rect)
+                if dr.IsEmpty { continue }
+                canvas.DrawImage(img, into: dr, opacity: item.Opacity)
+                continue
+            }
+            // A background: tiles from the origin across the area, only
+            // the ones that show, kept inside the box's curves.
+            let area = device(item.Rect)
+            if area.IsEmpty { continue }
+            var tiled = canvas
+            tiled.ClipTo(area)
+            if tiled.Clip.IsEmpty { continue }
+            let shapeRadii = item.Radii.Scaled(scale)
+            let tw = item.TileWidth * scale
+            let th = item.TileHeight * scale
+            if tw < 1 || th < 1 { continue }
+            let ox = item.X * scale + dx
+            let oy = item.Y * scale + dy
+            var startX = ox
+            var startY = oy
+            if item.RepeatX { startX = ox - c_ceilf((ox - float32(tiled.Clip.X)) / tw) * tw }
+            if item.RepeatY { startY = oy - c_ceilf((oy - float32(tiled.Clip.Y)) / th) * th }
+            var ty = startY
+            var rows = 0
+            while ty < float32(tiled.Clip.Bottom) && rows < 4096 {
+                var tx = startX
+                var cols = 0
+                while tx < float32(tiled.Clip.Right) && cols < 4096 {
+                    let x0 = draw.roundToInt(tx)
+                    let y0 = draw.roundToInt(ty)
+                    let x1 = draw.roundToInt(tx + tw)
+                    let y1 = draw.roundToInt(ty + th)
+                    tiled.DrawImage(img, into: draw.IRect(x0, y0, x1 - x0, y1 - y0), opacity: item.Opacity, shape: area, radii: shapeRadii)
+                    if !item.RepeatX { break }
+                    tx += tw
+                    cols += 1
+                }
+                if !item.RepeatY { break }
+                ty += th
+                rows += 1
+            }
+        case .gradient:
             let dr = device(item.Rect)
             if dr.IsEmpty { continue }
-            if let img = item.Image { canvas.DrawImage(img, into: dr, opacity: item.Opacity) }
+            if let g = item.Gradient { canvas.FillGradient(dr, radii: item.Radii.Scaled(scale), g) }
         case .clip:
             clips.append(canvas.Clip)
             canvas.ClipTo(device(item.Rect))

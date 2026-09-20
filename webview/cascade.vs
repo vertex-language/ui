@@ -45,6 +45,8 @@ public final class RuleSet {
     /// Whether any rule depends on the viewport: a media query, or a
     /// length in vw or vh, which a resize has to recompute.
     public var UsesViewport: bool = false
+    /// The URLs of background images the rules name, for loading.
+    public var ImageURLs: [string] = []
     var mediaWidth: float32 = -1
     var mediaHeight: float32 = -1
 
@@ -77,6 +79,7 @@ public final class RuleSet {
             if case .length(_, let unit) = d.Value {
                 if unit == .vw || unit == .vh || unit == .vmin || unit == .vmax { UsesViewport = true }
             }
+            if case .url(let u) = d.Value { ImageURLs.append(u) }
         }
         for text in rule.Selectors {
             let parsed = selector.ParseSelectors(text)
@@ -570,7 +573,66 @@ func apply(_ d: Declaration, _ s: ComputedStyle, _ ctx: ApplyContext) {
         if case .currentColor = v { s.BackgroundColor = s.Color }
         else if let c = colorOf(v) { s.BackgroundColor = c }
     case .backgroundImage:
-        if case .url(let u) = v { s.BackgroundImage = BackgroundImage(url: u) } else { s.BackgroundImage = nil }
+        var layer: BackgroundImage? = nil
+        if case .url(let u) = v { layer = BackgroundImage(url: u) }
+        if case .gradient(let g) = v { layer = BackgroundImage(gradient: g) }
+        if let old = s.BackgroundImage, var made = layer {
+            made.RepeatX = old.RepeatX
+            made.RepeatY = old.RepeatY
+            made.Size = old.Size
+            made.PositionX = old.PositionX
+            made.PositionY = old.PositionY
+            layer = made
+        }
+        s.BackgroundImage = layer
+    case .backgroundRepeat:
+        if let k = keywordOf(v) {
+            var layer = s.BackgroundImage ?? BackgroundImage(url: "")
+            layer.RepeatX = k == "repeat" || k == "repeat-x" || k == "space" || k == "round"
+            layer.RepeatY = k == "repeat" || k == "repeat-y" || k == "space" || k == "round"
+            s.BackgroundImage = layer
+        }
+    case .backgroundSize:
+        if let k = keywordOf(v) {
+            var layer = s.BackgroundImage ?? BackgroundImage(url: "")
+            if k == "cover" { layer.Size = .cover }
+            else if k == "contain" { layer.Size = .contain }
+            else if k == "auto" { layer.Size = .auto }
+            else {
+                let parts = words(k)
+                let w = lengthFromWord(parts[0], s, ctx)
+                let h = parts.count > 1 ? lengthFromWord(parts[1], s, ctx) : Length.auto
+                layer.Size = .length(w, h)
+            }
+            s.BackgroundImage = layer
+        }
+    case .backgroundPosition:
+        if let k = keywordOf(v) {
+            var layer = s.BackgroundImage ?? BackgroundImage(url: "")
+            var xs: [float32] = []
+            var ys: [float32] = []
+            var free: [float32] = []
+            for word in words(k) {
+                switch word {
+                case "left": xs.append(0)
+                case "right": xs.append(1)
+                case "top": ys.append(0)
+                case "bottom": ys.append(1)
+                case "center": free.append(0.5)
+                default:
+                    let b = [uint8](word.utf8)
+                    if !b.isEmpty && b[b.count - 1] == 37 { free.append(draw.parseNumber(b, 0, b.count - 1) / 100) }
+                    else { free.append(0) }
+                }
+            }
+            var all = xs + free
+            if xs.isEmpty && !free.isEmpty { all = free }
+            layer.PositionX = xs.first ?? (free.count > 0 ? free[0] : 0)
+            layer.PositionY = ys.first ?? (free.count > 1 ? free[1] : (free.count == 1 && !xs.isEmpty ? free[0] : (free.count == 1 && xs.isEmpty ? 0.5 : 0)))
+            if xs.isEmpty && ys.isEmpty && free.count == 1 { layer.PositionY = 0.5 }
+            _ = all
+            s.BackgroundImage = layer
+        }
     case .opacity:
         if case .number(let n) = v { s.Opacity = n < 0 ? 0 : (n > 1 ? 1 : n) }
     case .overflowX: if let k = keywordOf(v) { s.OverflowX = overflowOf(k) }
@@ -954,6 +1016,23 @@ func copyProperty(_ p: Prop, from a: ComputedStyle, to b: ComputedStyle) {
     case .borderBottomLeftRadius: b.BorderRadius.BottomLeft = a.BorderRadius.BottomLeft
     case .backgroundColor: b.BackgroundColor = a.BackgroundColor
     case .backgroundImage: b.BackgroundImage = a.BackgroundImage
+    case .backgroundRepeat, .backgroundSize, .backgroundPosition:
+        if let src = a.BackgroundImage, var dst = b.BackgroundImage {
+            dst.RepeatX = src.RepeatX
+            dst.RepeatY = src.RepeatY
+            dst.Size = src.Size
+            dst.PositionX = src.PositionX
+            dst.PositionY = src.PositionY
+            b.BackgroundImage = dst
+        } else if p != .backgroundImage {
+            if let src = a.BackgroundImage, b.BackgroundImage == nil {
+                var dst = BackgroundImage(url: "")
+                dst.RepeatX = src.RepeatX
+                dst.RepeatY = src.RepeatY
+                dst.Size = src.Size
+                b.BackgroundImage = dst
+            }
+        }
     case .opacity: b.Opacity = a.Opacity
     case .overflowX: b.OverflowX = a.OverflowX
     case .overflowY: b.OverflowY = a.OverflowY
@@ -1043,4 +1122,16 @@ func sameFamilies(_ a: [string], _ b: [string]) -> bool {
         i += 1
     }
     return true
+}
+
+/// A length written as a word of a keyword value: "50%", "10px", "auto".
+func lengthFromWord(_ word: string, _ s: ComputedStyle, _ ctx: ApplyContext) -> Length {
+    if word == "auto" { return .auto }
+    let b = [uint8](word.utf8)
+    if b.isEmpty { return .auto }
+    let n = draw.parseNumber(b, 0, b.count)
+    if b[b.count - 1] == 37 { return .percent(n) }
+    if word.hasSuffix("em") && !word.hasSuffix("rem") { return .px(n * s.FontSize) }
+    if word.hasSuffix("rem") { return .px(n * ctx.rootFontSize) }
+    return .px(n)
 }

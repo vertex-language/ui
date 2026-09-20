@@ -48,6 +48,9 @@ public enum Prop: int32 {
     case borderBottomLeftRadius
     case backgroundColor
     case backgroundImage
+    case backgroundRepeat
+    case backgroundSize
+    case backgroundPosition
     case opacity
     case overflowX
     case overflowY
@@ -119,6 +122,7 @@ public enum Value {
     case string(string)
     case families([string])
     case url(string)
+    case gradient(draw.LinearGradient)
     case shadows([ShadowValue])
     case inherit
     case initial
@@ -163,6 +167,7 @@ let propNames: [string: Prop] = [
     "border-top-left-radius": .borderTopLeftRadius, "border-top-right-radius": .borderTopRightRadius,
     "border-bottom-right-radius": .borderBottomRightRadius, "border-bottom-left-radius": .borderBottomLeftRadius,
     "background-color": .backgroundColor, "background-image": .backgroundImage, "opacity": .opacity,
+    "background-repeat": .backgroundRepeat, "background-size": .backgroundSize, "background-position": .backgroundPosition,
     "overflow-x": .overflowX, "overflow-y": .overflowY, "box-shadow": .boxShadow,
     "outline-width": .outlineWidth, "outline-color": .outlineColor,
     "vertical-align": .verticalAlign, "text-decoration-line": .textDecorationLine,
@@ -254,24 +259,67 @@ public func ParseDeclaration(_ d: css.Declaration) -> [Declaration] {
         set(.borderTopLeftRadius, four[0]); set(.borderTopRightRadius, four[1])
         set(.borderBottomRightRadius, four[2]); set(.borderBottomLeftRadius, four[3])
     case "background":
+        // The first layer only: a color, an image or gradient, how it
+        // repeats, where it sits, and after a slash how big it is.
         var i = 0
         var sawColor = false
         var sawImage = false
+        var sawRepeat = false
+        var sawSize = false
+        var positions: [css.Token] = []
+        var afterSlash = false
         while i < tokens.count {
+            let t = tokens[i]
+            if t.Kind == .comma { break }
+            if t.Kind == .delim && t.Value == "/" { afterSlash = true; i += 1; continue }
             if let m = parseColorAt(tokens, i) {
                 set(.backgroundColor, m.0)
                 sawColor = true
                 i += m.1
                 continue
             }
-            if tokens[i].Kind == .url {
-                set(.backgroundImage, .url(tokens[i].Value))
+            if t.Kind == .url {
+                set(.backgroundImage, .url(t.Value))
                 sawImage = true
+            } else if t.Kind == .function && isGradientName(lower(t.Value)) {
+                let end = closeParen(tokens, from: i + 1)
+                if let g = parseGradient(tokens, i + 1, end) {
+                    set(.backgroundImage, .gradient(g))
+                    sawImage = true
+                }
+                i = end + 1
+                continue
+            } else if t.Kind == .ident {
+                let kw = lower(t.Value)
+                if kw == "no-repeat" || kw == "repeat" || kw == "repeat-x" || kw == "repeat-y" || kw == "space" || kw == "round" {
+                    set(.backgroundRepeat, .keyword(kw))
+                    sawRepeat = true
+                } else if afterSlash && (kw == "cover" || kw == "contain" || kw == "auto") {
+                    set(.backgroundSize, .keyword(kw))
+                    sawSize = true
+                } else if kw == "center" || kw == "left" || kw == "right" || kw == "top" || kw == "bottom" {
+                    positions.append(t)
+                }
+            } else if t.Kind == .percentage || t.Kind == .dimension || t.Kind == .number {
+                if afterSlash {
+                    var sizeTokens: [css.Token] = [t]
+                    if i + 1 < tokens.count && (tokens[i + 1].Kind == .percentage || tokens[i + 1].Kind == .dimension || (tokens[i + 1].Kind == .ident && lower(tokens[i + 1].Value) == "auto")) {
+                        sizeTokens.append(tokens[i + 1])
+                        i += 1
+                    }
+                    if let v = parseBackgroundSize(sizeTokens) { set(.backgroundSize, v); sawSize = true }
+                } else {
+                    positions.append(t)
+                }
             }
             i += 1
         }
+        if !positions.isEmpty, let pos = parseBackgroundPosition(positions) { set(.backgroundPosition, pos) }
+        else { set(.backgroundPosition, .initial) }
         if !sawColor { set(.backgroundColor, .initial) }
         if !sawImage { set(.backgroundImage, .none) }
+        if !sawRepeat { set(.backgroundRepeat, .initial) }
+        if !sawSize { set(.backgroundSize, .initial) }
     case "overflow":
         guard let first = parseOverflow(tokens[0]) else { return [] }
         set(.overflowX, first)
@@ -317,7 +365,7 @@ public func ParseDeclaration(_ d: css.Declaration) -> [Declaration] {
         if let v = parseValue(.alignItems, [tokens[0]]) { set(.alignItems, v) }
     case "text-decoration-style", "text-decoration-thickness", "text-underline-offset",
          "transition", "animation", "transform", "content", "quotes", "counter-reset", "counter-increment",
-         "background-size", "background-position", "background-repeat", "background-attachment",
+         "background-attachment",
          "font-variant", "font-stretch", "font-feature-settings", "src", "unicode-range",
          "grid-template-columns", "grid-template-rows", "grid-area", "grid-column", "grid-row",
          "user-select", "pointer-events", "appearance", "-webkit-appearance", "resize", "scroll-behavior",
@@ -385,7 +433,7 @@ func longhandsOf(_ name: string) -> [Prop] {
     case "border-color": return borderColorProps
     case "border": return borderWidthProps + borderStyleProps + borderColorProps
     case "border-radius": return [.borderTopLeftRadius, .borderTopRightRadius, .borderBottomRightRadius, .borderBottomLeftRadius]
-    case "background": return [.backgroundColor, .backgroundImage]
+    case "background": return [.backgroundColor, .backgroundImage, .backgroundRepeat, .backgroundSize, .backgroundPosition]
     case "overflow": return [.overflowX, .overflowY]
     case "font": return [.fontFamily, .fontSize, .fontWeight, .fontStyle, .lineHeight]
     case "flex": return [.flexGrow, .flexShrink, .flexBasis]
@@ -817,7 +865,20 @@ func parseValue(_ prop: Prop, _ tokens: [css.Token]) -> Value? {
     case .backgroundImage:
         if kw == "none" { return .none }
         if t.Kind == .url { return .url(t.Value) }
+        if t.Kind == .function && isGradientName(lower(t.Value)) {
+            if let g = parseGradient(tokens, 1, closeParen(tokens, from: 1)) { return .gradient(g) }
+        }
         return nil
+    case .backgroundRepeat:
+        switch kw {
+        case "no-repeat", "repeat", "repeat-x", "repeat-y", "space", "round": return .keyword(kw)
+        default: return nil
+        }
+    case .backgroundSize:
+        if kw == "cover" || kw == "contain" || kw == "auto" { return .keyword(kw) }
+        return parseBackgroundSize(tokens)
+    case .backgroundPosition:
+        return parseBackgroundPosition(tokens)
     case .opacity, .flexGrow, .flexShrink:
         if t.Kind == .number { return .number(t.NumberVal) }
         if t.Kind == .percentage && prop == .opacity { return .number(t.NumberVal / 100) }
@@ -934,4 +995,157 @@ func parseValue(_ prop: Prop, _ tokens: [css.Token]) -> Value? {
     case .borderSpacing:
         return parseLengthValue(t, allowAuto: false)
     }
+}
+
+func isGradientName(_ name: string) -> bool {
+    return name == "linear-gradient" || name == "-webkit-linear-gradient" || name == "repeating-linear-gradient" ||
+        name == "radial-gradient" || name == "-webkit-radial-gradient"
+}
+
+/// The index of the paren closing a function whose arguments start at
+/// `from`, or the token count.
+func closeParen(_ tokens: [css.Token], from: int) -> int {
+    var depth = 1
+    var i = from
+    while i < tokens.count {
+        if tokens[i].Kind == .function || tokens[i].Kind == .openParen { depth += 1 }
+        if tokens[i].Kind == .closeParen {
+            depth -= 1
+            if depth == 0 { return i }
+        }
+        i += 1
+    }
+    return tokens.count
+}
+
+/// A linear-gradient's arguments: an angle or a direction, then color
+/// stops with optional positions. A radial gradient is drawn as a
+/// linear one from its centre color outward, which is near enough.
+func parseGradient(_ tokens: [css.Token], _ start: int, _ end: int) -> draw.LinearGradient? {
+    // Split the arguments at top-level commas.
+    var args: [[css.Token]] = []
+    var current: [css.Token] = []
+    var depth = 0
+    var i = start
+    while i < end {
+        let t = tokens[i]
+        if t.Kind == .function || t.Kind == .openParen { depth += 1 }
+        if t.Kind == .closeParen { depth -= 1 }
+        if t.Kind == .comma && depth == 0 {
+            args.append(current)
+            current = []
+        } else {
+            current.append(t)
+        }
+        i += 1
+    }
+    if !current.isEmpty { args.append(current) }
+    if args.isEmpty { return nil }
+    var angle: float32 = 180
+    var firstStop = 0
+    let head = args[0]
+    if head.count == 1 && head[0].Kind == .dimension {
+        let unit = head[0].Unit
+        if unit == "deg" { angle = head[0].NumberVal }
+        else if unit == "turn" { angle = head[0].NumberVal * 360 }
+        else if unit == "rad" { angle = head[0].NumberVal * 57.29578 }
+        else if unit == "grad" { angle = head[0].NumberVal * 0.9 }
+        firstStop = 1
+    } else if head.count >= 2 && head[0].Kind == .ident && lower(head[0].Value) == "to" {
+        var dx: float32 = 0
+        var dy: float32 = 0
+        var k = 1
+        while k < head.count {
+            switch lower(head[k].Value) {
+            case "left": dx = -1
+            case "right": dx = 1
+            case "top": dy = -1
+            case "bottom": dy = 1
+            default: break
+            }
+            k += 1
+        }
+        if dx == 0 && dy == 0 { dy = 1 }
+        // The angle whose direction is (dx, dy), with 0 pointing up.
+        if dx == 0 { angle = dy > 0 ? 180 : 0 }
+        else if dy == 0 { angle = dx > 0 ? 90 : 270 }
+        else if dx > 0 { angle = dy > 0 ? 135 : 45 }
+        else { angle = dy > 0 ? 225 : 315 }
+        firstStop = 1
+    } else if head.count >= 1 && head[0].Kind == .ident && (lower(head[0].Value) == "circle" || lower(head[0].Value) == "ellipse" || lower(head[0].Value) == "at" || lower(head[0].Value) == "closest-side" || lower(head[0].Value) == "farthest-corner") {
+        firstStop = 1
+    }
+    var stops: [draw.GradientStop] = []
+    var positions: [float32] = []
+    var k = firstStop
+    while k < args.count {
+        let arg = args[k]
+        if arg.isEmpty { k += 1; continue }
+        guard let m = parseColorAt(arg, 0) else { k += 1; continue }
+        var color = draw.Color.black
+        if case .color(let c) = m.0 { color = c }
+        var pos: float32 = -1
+        if m.1 < arg.count {
+            let pt = arg[m.1]
+            if pt.Kind == .percentage { pos = pt.NumberVal / 100 }
+            else if pt.Kind == .number { pos = pt.NumberVal }
+        }
+        stops.append(draw.GradientStop(color, at: pos))
+        positions.append(pos)
+        k += 1
+    }
+    if stops.isEmpty { return nil }
+    // Missing positions: the first is 0, the last 1, the rest spread
+    // evenly between the ones given.
+    if stops[0].Position < 0 { stops[0].Position = 0 }
+    if stops[stops.count - 1].Position < 0 { stops[stops.count - 1].Position = 1 }
+    var i2 = 1
+    while i2 < stops.count - 1 {
+        if stops[i2].Position < 0 {
+            var j = i2 + 1
+            while j < stops.count && stops[j].Position < 0 { j += 1 }
+            let from = stops[i2 - 1].Position
+            let to = stops[j].Position
+            let n = float32(j - i2 + 1)
+            var m2 = i2
+            while m2 < j {
+                stops[m2].Position = from + (to - from) * float32(m2 - i2 + 1) / n
+                m2 += 1
+            }
+            i2 = j
+        } else {
+            i2 += 1
+        }
+    }
+    var i3 = 1
+    while i3 < stops.count {
+        if stops[i3].Position < stops[i3 - 1].Position { stops[i3].Position = stops[i3 - 1].Position }
+        i3 += 1
+    }
+    return draw.LinearGradient(angle: angle, stops: stops)
+}
+
+func parseBackgroundSize(_ tokens: [css.Token]) -> Value? {
+    if tokens.isEmpty { return nil }
+    if tokens[0].Kind == .ident {
+        let kw = lower(tokens[0].Value)
+        if kw == "cover" || kw == "contain" || kw == "auto" { return .keyword(kw) }
+        return nil
+    }
+    var words: [string] = []
+    for t in tokens {
+        if t.Kind == .ident { words.append(lower(t.Value)) }
+        else if t.Kind == .percentage || t.Kind == .dimension || t.Kind == .number { words.append(t.Value) }
+    }
+    return .keyword(joinWords(words))
+}
+
+func parseBackgroundPosition(_ tokens: [css.Token]) -> Value? {
+    var words: [string] = []
+    for t in tokens {
+        if t.Kind == .ident { words.append(lower(t.Value)) }
+        else if t.Kind == .percentage || t.Kind == .dimension || t.Kind == .number { words.append(t.Value) }
+    }
+    if words.isEmpty { return nil }
+    return .keyword(joinWords(words))
 }

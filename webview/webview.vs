@@ -160,8 +160,13 @@ public final class WebView {
                 resolver.Author.Add(css.Parse(style.InnerText()))
             }
         }
+        var wanted: [string] = []
         for img in doc.ElementsByTagName("img") {
-            if let src = img.GetAttribute("src"), images[src] == nil {
+            if let src = img.GetAttribute("src") { wanted.append(src) }
+        }
+        for url in resolver.Author.ImageURLs { wanted.append(url) }
+        for src in wanted {
+            if images[src] == nil {
                 if src.hasPrefix("data:") {
                     if let decoded = image.DecodeDataURL(src) { images[src] = decoded }
                 } else if let bytes = loadResource(Resolve(src)), let decoded = decodeImage(bytes) {
@@ -305,6 +310,7 @@ public final class WebView {
                 let b = DisplayListBuilder()
                 b.focused = focused?.Id ?? 0
                 b.caret = caret
+                b.images = images
                 displayList = b.build(r, viewportWidth: size.Width, viewportHeight: size.Height, background: Configuration.BackgroundColor)
             } else {
                 displayList = []

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html><head><title>Effects</title>
+<style>
+  body { margin: 0; font-family: system-ui; background: #f3f4f6; }
+  .hero { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px 32px; }
+  .hero h1 { margin: 0 0 8px; font-size: 32px; }
+  .hero p { margin: 0; opacity: 0.85; }
+  .grid { display: flex; gap: 20px; padding: 28px 32px; flex-wrap: wrap; }
+  .card { background: white; border-radius: 12px; padding: 20px; width: 220px; box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
+  .card h3 { margin: 0 0 8px; }
+  .card p { margin: 0; color: #555; font-size: 14px; line-height: 1.5; }
+  .swatch { height: 60px; border-radius: 8px; margin-bottom: 12px; }
+  .a { background: linear-gradient(to right, #ff9a9e, #fad0c4); }
+  .b { background: linear-gradient(#a18cd1, #fbc2eb); }
+  .c { background: url(vertex.png) center / cover no-repeat; }
+  .d { background: url(vertex.png) repeat; background-size: 40px 27px; }
+  .e { background: #fff url(vertex.png) no-repeat right bottom / 60px; border: 1px solid #ddd; }
+  .btn { display: inline-block; padding: 8px 16px; border-radius: 20px; background: linear-gradient(to bottom, #4facfe, #00f2fe); color: #003; font-weight: 600; box-shadow: 0 2px 6px rgba(0, 100, 200, 0.4); }
+  .badge { position: absolute; top: 12px; right: 12px; background: #ff5252; color: white; border-radius: 12px; padding: 2px 10px; font-size: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+</style></head>
+<body>
+<div class="hero"><h1>Gradients and shadows</h1><p>linear-gradient in the hero, box-shadow on the cards, background images sized and tiled.</p></div>
+<div class="badge">new</div>
+<div class="grid">
+  <div class="card"><div class="swatch a"></div><h3>To the right</h3><p>Two stops, from a pink to a peach.</p></div>
+  <div class="card"><div class="swatch b"></div><h3>Top to bottom</h3><p>The default direction when none is given.</p></div>
+  <div class="card"><div class="swatch c"></div><h3>Cover</h3><p>A picture scaled to cover its box and centred.</p></div>
+  <div class="card"><div class="swatch d"></div><h3>Tiled</h3><p>The same picture repeated at 40 by 27 pixels.</p></div>
+  <div class="card"><div class="swatch e"></div><h3>Placed</h3><p>Once, in the bottom right corner, 60 pixels wide.</p><p style="margin-top:12px"><span class="btn">A button</span></p></div>
+</div>
+</body></html>
