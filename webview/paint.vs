@@ -89,9 +89,15 @@ public struct PaintItem {
     static let unclip = PaintItem(.unclip)
 }
 
+enum PaintPhase: Equatable {
+    case blockBackgrounds
+    case floats
+    case inlineContent
+}
+
 /// Builds the list of what to paint from a laid-out box tree, in the
-/// order CSS paints: each box's background and border, then what it
-/// holds, with positioned boxes after their siblings.
+/// order CSS paints: block backgrounds and borders, then floats, then
+/// inline content, with positioned boxes after their siblings.
 final class DisplayListBuilder {
     var items: [PaintItem] = []
     /// The page's state the painter needs.
@@ -127,45 +133,29 @@ final class DisplayListBuilder {
         return items
     }
 
-    func color(_ c: draw.Color) -> draw.Color {
-        return opacity < 1 ? c.Faded(opacity) : c
-    }
-
-    /// Paints a box at its position, given its parent's origin.
+    /// Paints a box as CSS orders a stacking context: the backgrounds
+    /// and borders of it and its in-flow block descendants, then its
+    /// floats, then its inline content and replaced content, then the
+    /// boxes positioned against it.
     func paintBox(_ box: Box, x parentX: float32, y parentY: float32, skipBackground: Int) {
         let s = box.Style
         if s.Visibility != .visible && !hasVisibleDescendant(box) { return }
-        let visible = s.Visibility == .visible
         let x = parentX + box.X + box.OffsetX
         let y = parentY + box.Y + box.OffsetY
         let savedOpacity = opacity
         if s.Opacity < 1 { opacity = opacity * s.Opacity }
-
-        if visible && box.Id != skipBackground {
-            paintBackgroundAndBorder(box, x: x, y: y)
-        }
-
         let clips = s.ClipsOverflow
         if clips {
+            paintBackgroundAndBorderIfVisible(box, x: x, y: y, skipBackground: skipBackground)
             items.append(.clip(draw.Rect(x + box.Border.Left, y + box.Border.Top, box.PaddingBoxWidth, box.PaddingBoxHeight)))
+            paintPhase(box, .blockBackgrounds, x: parentX, y: parentY, skipBackground: skipBackground, isRoot: true)
+        } else {
+            paintPhase(box, .blockBackgrounds, x: parentX, y: parentY, skipBackground: skipBackground, isRoot: false)
         }
+        paintPhase(box, .floats, x: parentX, y: parentY, skipBackground: skipBackground, isRoot: false)
+        paintPhase(box, .inlineContent, x: parentX, y: parentY, skipBackground: skipBackground, isRoot: false)
         let sx = x - box.ScrollX
         let sy = y - box.ScrollY
-
-        if box.Kind == .replaced {
-            if visible { paintReplaced(box, x: x, y: y) }
-        } else if !box.Lines.isEmpty {
-            for line in box.Lines {
-                paintLine(box, line, x: sx, y: sy, visible: visible)
-            }
-        } else {
-            for child in box.Children {
-                if child.Style.Position == .absolute || child.Style.Position == .fixed { continue }
-                if child.Kind == .text || child.Kind == .inline || child.Kind == .lineBreak { continue }
-                paintBox(child, x: sx, y: sy, skipBackground: skipBackground)
-            }
-        }
-        // Positioned boxes, lowest z-index first.
         if !box.Positioned.isEmpty {
             var list = box.Positioned
             sortByZIndex(&list)
@@ -176,13 +166,86 @@ final class DisplayListBuilder {
         if clips {
             items.append(PaintItem.unclip)
         }
-        if visible && s.OutlineWidth > 0 && box.Node != nil && box.Node!.Id == focused {
+        if s.Visibility == .visible && s.OutlineWidth > 0 && box.Node != nil && box.Node!.Id == focused {
             let w = s.OutlineWidth
             let ring = draw.Rect(x - w, y - w, box.Width + 2 * w, box.Height + 2 * w)
             let c = color(s.OutlineColor ?? draw.Color(0, 95, 204))
             items.append(.border(ring, draw.Edges(all: w), [c, c, c, c], s.BorderRadius.IsZero ? draw.Radii.zero : draw.Radii(all: s.BorderRadius.TopLeft + w)))
         }
         opacity = savedOpacity
+    }
+
+    func paintBackgroundAndBorderIfVisible(_ box: Box, x: float32, y: float32, skipBackground: Int) {
+        if box.Style.Visibility == .visible && box.Id != skipBackground {
+            paintBackgroundAndBorder(box, x: x, y: y)
+        }
+    }
+
+    /// One phase of a box and its in-flow descendants. Descendants that
+    /// start a stacking context of their own -- positioned boxes,
+    /// floats, atomic inlines -- are painted whole in the phase that
+    /// owns them, and skipped in the others.
+    func paintPhase(_ box: Box, _ phase: PaintPhase, x parentX: float32, y parentY: float32, skipBackground: Int, isRoot: Bool) {
+        let s = box.Style
+        let x = parentX + box.X + box.OffsetX
+        let y = parentY + box.Y + box.OffsetY
+        let visible = s.Visibility == .visible
+        if phase == .blockBackgrounds && !isRoot {
+            paintBackgroundAndBorderIfVisible(box, x: x, y: y, skipBackground: skipBackground)
+        }
+        let sx = x - box.ScrollX
+        let sy = y - box.ScrollY
+        if box.Kind == .replaced {
+            if phase == .inlineContent && visible { paintReplaced(box, x: x, y: y) }
+            return
+        }
+        if !box.Lines.isEmpty {
+            // Floats among the lines belong to the float phase; the
+            // lines themselves to the inline phase.
+            if phase == .floats {
+                for child in box.Children {
+                    paintFloatsWithin(child, x: sx, y: sy, skipBackground: skipBackground)
+                }
+            } else if phase == .inlineContent {
+                for line in box.Lines {
+                    paintLine(box, line, x: sx, y: sy, visible: visible)
+                }
+            }
+            return
+        }
+        for child in box.Children {
+            if child.Style.Position == .absolute || child.Style.Position == .fixed { continue }
+            if child.Kind == .text || child.Kind == .inline || child.Kind == .lineBreak { continue }
+            if child.Style.Float != .none {
+                if phase == .floats { paintBox(child, x: sx, y: sy, skipBackground: skipBackground) }
+                continue
+            }
+            if child.Style.ClipsOverflow || child.Style.Opacity < 1 {
+                // A clipping or translucent box paints as a whole, in
+                // the phase its background would go in.
+                if phase == .blockBackgrounds { paintBox(child, x: sx, y: sy, skipBackground: skipBackground) }
+                continue
+            }
+            paintPhase(child, phase, x: sx, y: sy, skipBackground: skipBackground, isRoot: false)
+        }
+    }
+
+    /// Floats that inline layout placed among a box's inline content.
+    func paintFloatsWithin(_ box: Box, x: float32, y: float32, skipBackground: Int) {
+        if box.Kind == .text || box.Kind == .lineBreak { return }
+        if box.Style.Float != .none {
+            paintBox(box, x: x, y: y, skipBackground: skipBackground)
+            return
+        }
+        if box.Kind == .inline {
+            for child in box.Children {
+                paintFloatsWithin(child, x: x, y: y, skipBackground: skipBackground)
+            }
+        }
+    }
+
+    func color(_ c: draw.Color) -> draw.Color {
+        return opacity < 1 ? c.Faded(opacity) : c
     }
 
     func hasVisibleDescendant(_ box: Box) -> bool {

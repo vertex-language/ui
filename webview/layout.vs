@@ -33,7 +33,8 @@ public final class Layout {
         root.X = 0
         root.Y = 0
         root.Positioned = []
-        layoutBlock(root, cb: cb, positionedAncestor: root)
+        let flow = Flow(positioned: root, floats: FloatContext(), x: 0, y: 0)
+        layoutBlock(root, cb: cb, flow: flow)
         root.X = root.Margin.Left
         root.Y = root.Margin.Top
         layoutPositioned(root, cb: cb)
@@ -99,7 +100,7 @@ public final class Layout {
     /// Lays out a block-level box in normal flow: its width from the
     /// containing block, its content, then its height. Sets Width,
     /// Height and the edges; the caller places X and Y.
-    func layoutBlock(_ box: Box, cb: ContainingBlock, positionedAncestor: Box) {
+    func layoutBlock(_ box: Box, cb: ContainingBlock, flow: Flow) {
         resolveEdges(box, cbWidth: cb.Width)
         box.Positioned = []
         let s = box.Style
@@ -152,7 +153,7 @@ public final class Layout {
         if let g = givenHeight {
             box.DefiniteInnerHeight = clampHeight(box, g, cbHeight: cb.Height) - box.Padding.Vertical - box.Border.Vertical
         }
-        let contentHeight = layoutContent(box, positionedAncestor: s.IsPositioned ? box : positionedAncestor)
+        let contentHeight = layoutContent(box, flow: box.IsFormattingRoot ? flow.root(box) : (s.IsPositioned ? flow.positionedBy(box) : flow))
 
         // Height: given, or the content's.
         var h = contentHeight + box.Padding.Vertical + box.Border.Vertical
@@ -168,15 +169,20 @@ public final class Layout {
     }
 
     /// Lays out what a block holds and answers the content height.
-    func layoutContent(_ box: Box, positionedAncestor: Box) -> float32 {
+    func layoutContent(_ box: Box, flow: Flow) -> float32 {
         let contentWidth = box.InnerWidth
         var height: float32 = 0
         if box.Style.IsFlexContainer {
-            height = layoutFlex(box, contentWidth: contentWidth, positionedAncestor: positionedAncestor)
+            height = layoutFlex(box, contentWidth: contentWidth, flow: flow)
         } else if box.HasInlineChildren {
-            height = layoutInline(box, contentWidth: contentWidth, positionedAncestor: positionedAncestor)
+            height = layoutInline(box, contentWidth: contentWidth, flow: flow)
         } else {
-            height = layoutBlockChildren(box, contentWidth: contentWidth, positionedAncestor: positionedAncestor)
+            height = layoutBlockChildren(box, contentWidth: contentWidth, flow: flow)
+        }
+        // A formatting root holds its floats: it grows to their bottom.
+        if flow.x == 0 && flow.y == 0 && (box.IsFormattingRoot || box.Parent == nil) {
+            let floatsBottom = flow.floats.bottom - box.ContentY
+            if floatsBottom > height { height = floatsBottom }
         }
         return height
     }
@@ -184,8 +190,12 @@ public final class Layout {
     /// Stacks block children top to bottom, collapsing the margins that
     /// meet: adjacent siblings', and a first or last child's with the
     /// parent's where nothing separates them.
-    func layoutBlockChildren(_ box: Box, contentWidth: float32, positionedAncestor: Box) -> float32 {
+    func layoutBlockChildren(_ box: Box, contentWidth: float32, flow: Flow) -> float32 {
         let cb = ContainingBlock(width: contentWidth, height: definiteInnerHeight(box))
+        let positionedAncestor = flow.positioned
+        // The content box's corner in the formatting context, for floats.
+        let rootX = flow.x + box.ContentX
+        let rootY = flow.y + box.ContentY
         var y: float32 = 0
         // The margin waiting to be placed: the largest positive and the
         // most negative seen since the last content.
@@ -208,19 +218,15 @@ public final class Layout {
                 continue
             }
             if child.Style.Float != .none {
-                // Floats are laid out in flow for now: as blocks that
-                // take their own width, side by side when they fit.
-                layoutBlock(child, cb: cb, positionedAncestor: positionedAncestor)
-                child.X = box.ContentX + child.Margin.Left
-                if child.Style.Float == .right {
-                    child.X = box.ContentX + contentWidth - child.Width - child.Margin.Right
-                }
-                child.Y = box.ContentY + y + positive + negative + child.Margin.Top
-                y = child.Y - box.ContentY + child.Height + child.Margin.Bottom
-                positive = 0
-                negative = 0
-                first = false
-                lastChild = child
+                // A float takes its own width and goes to the side, as
+                // high as the floats before it allow; the flow's y is
+                // untouched.
+                layoutBlock(child, cb: cb, flow: flow.root(child))
+                let top = rootY + y + positive + negative
+                let placed = flow.floats.place(child, left: child.Style.Float == .left, y: top,
+                                               containerLeft: rootX, containerRight: rootX + contentWidth)
+                child.X = placed.x - rootX + box.ContentX + child.Margin.Left
+                child.Y = placed.y - rootY + box.ContentY + child.Margin.Top
                 if child.X + child.Width > contentRight { contentRight = child.X + child.Width }
                 continue
             }
@@ -229,7 +235,22 @@ public final class Layout {
             if first && !box.Marker.isEmpty && child.Marker.isEmpty {
                 child.Marker = box.Marker
             }
-            layoutBlock(child, cb: cb, positionedAncestor: positionedAncestor)
+            if child.Style.Clear != .none {
+                // Move down past the floats cleared, margins and all.
+                let cleared = flow.floats.clearance(child.Style.Clear, at: rootY + y + positive + negative)
+                let need = cleared - rootY
+                if need > y + positive + negative {
+                    y = need
+                    positive = 0
+                    negative = 0
+                }
+            }
+            resolveEdges(child, cbWidth: contentWidth)
+            let childTop = child.Margin.Top
+            var pendingTop = positive
+            var pendingBottom = negative
+            if childTop >= 0 { if childTop > pendingTop { pendingTop = childTop } } else { if childTop < pendingBottom { pendingBottom = childTop } }
+            layoutBlock(child, cb: cb, flow: flow.at(box.ContentX + child.Margin.Left, box.ContentY + y + pendingTop + pendingBottom))
 
             // The child's top margin joins the pending one.
             let top = child.Margin.Top
@@ -335,7 +356,7 @@ public final class Layout {
     /// Lays out an atomic inline box -- inline-block, inline-flex or a
     /// control -- for a line: it takes its own width, up to what the
     /// line offers.
-    func layoutAtomic(_ box: Box, cb: ContainingBlock, positionedAncestor: Box) {
+    func layoutAtomic(_ box: Box, cb: ContainingBlock, flow: Flow) {
         if box.Kind == .replaced {
             resolveEdges(box, cbWidth: cb.Width)
             sizeReplaced(box, cb: cb)
@@ -356,7 +377,7 @@ public final class Layout {
         let givenHeight = heightFromStyle(box, s.Height, cbHeight: cb.Height)
         box.DefiniteInnerHeight = nil
         if let g = givenHeight { box.DefiniteInnerHeight = g - box.Padding.Vertical - box.Border.Vertical }
-        let contentHeight = layoutContent(box, positionedAncestor: s.IsPositioned ? box : positionedAncestor)
+        let contentHeight = layoutContent(box, flow: flow.root(box))
         var h = contentHeight + box.Padding.Vertical + box.Border.Vertical
         if let given = givenHeight { h = given }
         box.Height = clampHeight(box, h, cbHeight: cb.Height)
@@ -518,7 +539,7 @@ public final class Layout {
                 } else if let t = top, let b = bottom {
                     child.DefiniteInnerHeight = cbHeight - t - b - child.Margin.Vertical - child.Padding.Vertical - child.Border.Vertical
                 }
-                let contentHeight = layoutContent(child, positionedAncestor: child)
+                let contentHeight = layoutContent(child, flow: Flow(positioned: child, floats: FloatContext(), x: 0, y: 0))
                 var h = contentHeight + child.Padding.Vertical + child.Border.Vertical
                 if let given = heightFromStyle(child, s.Height, cbHeight: cbHeight) {
                     h = given

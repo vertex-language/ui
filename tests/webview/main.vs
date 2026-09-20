@@ -319,6 +319,42 @@ func testFlexLayout() {
     check(ta.Width > 20 && ta.Width < 60 && near(tx.rect("b")!.Width, 400 - ta.Width), "an item without flex takes its content width (got \(ta.Width))")
 }
 
+func testFloats() {
+    print("Floats")
+    guard let l = layoutOf("<body style='margin:0;font-size:16px;line-height:20px'><div id=f style='float:left;width:100px;height:50px'></div><div id=g style='float:right;width:80px;height:30px'></div><p id=p style='margin:0;width:400px'>one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty</p><div id=c style='clear:both;height:10px'></div></body>", width: 400) else { check(false, "layout"); return }
+    let f = l.rect("f")!
+    let g = l.rect("g")!
+    check(f.X == 0 && f.Y == 0, "a left float sits at the left")
+    check(g.X == 320 && g.Y == 0, "a right float sits at the right (got \(g.X) \(g.Y))")
+    let p = l.box("p")!
+    check(l.rect("p")!.Y == 0, "the paragraph starts where the floats do: floats take no flow height")
+    let first = p.Lines[0]
+    check(first.X == 100 && near(first.Width, 220), "the first line runs between the floats (x \(first.X) width \(first.Width))")
+    var afterRight: Line? = nil
+    var afterLeft: Line? = nil
+    for line in p.Lines {
+        if line.Y >= 30 && line.Y < 50 && afterRight == nil { afterRight = line }
+        if line.Y >= 50 && afterLeft == nil { afterLeft = line }
+    }
+    let afterRightWidth: float32 = afterRight != nil ? afterRight!.Width : -1
+    check(afterRight != nil && afterRight!.X == 100 && near(afterRightWidth, 300), "below the right float lines widen (got \(afterRightWidth))")
+    check(afterLeft != nil && afterLeft!.X == 0 && near(afterLeft!.Width, 400), "below both floats lines take the full width")
+    check(l.rect("c")!.Y >= 50, "clear: both moves below the floats (got \(l.rect("c")!.Y))")
+
+    guard let s = layoutOf("<body style='margin:0'><div id=wrap style='overflow:hidden'><div id=a style='float:left;width:50px;height:40px'></div></div><div id=next style='height:5px'></div></body>") else { check(false, "layout"); return }
+    check(s.rect("wrap")!.Height == 40, "a formatting root grows to hold its floats (got \(s.rect("wrap")!.Height))")
+    check(s.rect("next")!.Y == 40, "and the next block comes after it")
+
+    guard let i = layoutOf("<body style='margin:0;line-height:20px;width:300px'><p id=p style='margin:0'>text before <img id=img style='float:right;width:60px;height:30px'> and text after the image that keeps going and going and going for a while</p></body>", width: 300) else { check(false, "layout"); return }
+    let img = i.rect("img")!
+    check(img.X == 240 && img.Y == 0, "a float in text goes to the side at the top of its line (got \(img.X) \(img.Y))")
+    let pl = i.box("p")!.Lines
+    check(pl.count > 1 && near(pl[0].Width, 240) && pl[pl.count - 1].Width == 300, "lines beside the image are narrower, later ones full (got \(pl[0].Width) then \(pl[pl.count - 1].Width))")
+
+    guard let two = layoutOf("<body style='margin:0'><div id=a style='float:left;width:100px;height:20px'></div><div id=b style='float:left;width:100px;height:20px'></div><div id=c style='float:left;width:100px;height:20px'></div></body>", width: 250) else { check(false, "layout"); return }
+    check(two.rect("b")!.X == 100 && two.rect("c")!.X == 0 && two.rect("c")!.Y == 20, "floats line up and wrap when they do not fit (c at \(two.rect("c")!.X) \(two.rect("c")!.Y))")
+}
+
 func testPositioning() {
     print("Positioning")
     guard let l = layoutOf("<body style='margin:0'><div id=rel style='position:relative;width:300px;height:200px;margin-left:50px'><div id=abs style='position:absolute;top:10px;right:20px;width:100px;height:30px'></div><div id=full style='position:absolute;left:0;right:0;bottom:0;height:10px'></div></div><div id=fixed style='position:fixed;left:5px;top:6px;width:7px;height:8px'></div></body>") else { check(false, "layout"); return }
@@ -494,6 +530,7 @@ func main() -> int32 {
     testInlineLayout()
     testFlexLayout()
     testPositioning()
+    testFloats()
     testView()
     if failures == 0 {
         print("ALL WEBVIEW CHECKS PASSED")

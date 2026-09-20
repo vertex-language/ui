@@ -77,15 +77,17 @@ public final class BoxTreeBuilder {
             flushInline(&run, into: parent)
             return
         }
+        // Floats and positioned boxes go with the inline content around
+        // them; only in-flow blocks split it.
         var hasBlock = false
         var hasInline = false
         for b in made {
-            if b.Kind == .block { hasBlock = true } else if !(b.Kind == .text && isBlank(b.Text)) { hasInline = true }
+            if b.Kind == .block && !b.Style.IsOutOfFlow { hasBlock = true } else if !(b.Kind == .text && isBlank(b.Text)) { hasInline = true }
         }
         if hasBlock && hasInline {
             var run: [Box] = []
             for b in made {
-                if b.Kind == .block {
+                if b.Kind == .block && !b.Style.IsOutOfFlow {
                     flushInline(&run, into: parent)
                     parent.AppendChild(b)
                 } else {
@@ -112,6 +114,17 @@ public final class BoxTreeBuilder {
             if !(b.Kind == .text && isBlank(b.Text)) { allBlank = false }
         }
         if allBlank {
+            run = []
+            return
+        }
+        // A run that is only floats and positioned boxes, with blank
+        // text: they go straight into the parent.
+        var onlyOutOfFlow = true
+        for b in run {
+            if !(b.Style.IsOutOfFlow || (b.Kind == .text && isBlank(b.Text))) { onlyOutOfFlow = false }
+        }
+        if onlyOutOfFlow {
+            for b in run where b.Style.IsOutOfFlow { parent.AppendChild(b) }
             run = []
             return
         }

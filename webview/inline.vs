@@ -11,6 +11,7 @@ enum ItemKind: Equatable {
     case atomic
     case lineBreak
     case newline
+    case float
 }
 
 /// One thing inline layout places: a word, a space, the start or end of
@@ -54,12 +55,14 @@ struct OpenSpan {
 extension Layout {
     /// Lays out a block container's inline content as lines and answers
     /// the content height.
-    func layoutInline(_ box: Box, contentWidth: float32, positionedAncestor: Box) -> float32 {
+    func layoutInline(_ box: Box, contentWidth: float32, flow: Flow) -> float32 {
         box.Lines = []
         var items: [Item] = []
         var pendingSpace = false
         let cb = ContainingBlock(width: contentWidth, height: definiteInnerHeight(box))
-        collectItems(box, owner: box, cb: cb, positionedAncestor: positionedAncestor,
+        let rootX = flow.x + box.ContentX
+        let rootY = flow.y + box.ContentY
+        collectItems(box, owner: box, cb: cb, flow: flow,
                      decoration: box.Style.TextDecoration, decorationColor: box.Style.TextDecorationColor ?? box.Style.Color,
                      into: &items, pendingSpace: &pendingSpace)
         // A collapsing space at the very end never shows.
@@ -81,9 +84,34 @@ extension Layout {
         // A line may break before a word only where a space came before
         // it: not between a word and the punctuation stuck to it.
         var breakOpportunity = true
+        // Floats met in the text go to the side at the next line's top.
+        var pendingFloats: [Box] = []
+        let strutHeight = box.Style.LineHeightPx
+        let floats = flow.floats
+
+        // Where the current line starts and how wide it is, between the
+        // floats that reach it.
+        func band() -> (start: float32, width: float32) {
+            let b = floats.intrusions(y: rootY + y, height: strutHeight, left: rootX, right: rootX + contentWidth)
+            return (start: b.left - rootX, width: b.right - b.left)
+        }
 
         func available() -> float32 {
-            return contentWidth - (firstLine ? indent : 0)
+            return band().width - (firstLine ? indent : 0)
+        }
+
+        func narrowed() -> bool {
+            return band().width < contentWidth - 0.01
+        }
+
+        func placePendingFloats() {
+            for f in pendingFloats {
+                let placed = floats.place(f, left: f.Style.Float == .left, y: rootY + y,
+                                          containerLeft: rootX, containerRight: rootX + contentWidth)
+                f.X = placed.x - rootX + box.ContentX + f.Margin.Left
+                f.Y = placed.y - rootY + box.ContentY + f.Margin.Top
+            }
+            pendingFloats = []
         }
 
         func finishLine(forced: Bool) {
@@ -94,9 +122,11 @@ extension Layout {
             if !lineHasContent && !forced && !firstLine {
                 lineItems = []
                 lineWidth = 0
+                placePendingFloats()
                 return
             }
-            let line = buildLine(box, items: lineItems, y: y, contentWidth: contentWidth,
+            let b = band()
+            let line = buildLine(box, items: lineItems, y: y, startX: b.start, contentWidth: b.width,
                                  indent: firstLine ? indent : 0, open: &open, isFirst: firstLine)
             box.Lines.append(line)
             y += line.Height
@@ -107,10 +137,23 @@ extension Layout {
             lineWidth = 0
             lineHasContent = false
             firstLine = false
+            placePendingFloats()
         }
 
+        placePendingFloats()
         for item in items {
             switch item.kind {
+            case .float:
+                // Beside the line's content when it fits there, else at
+                // the top of the next line.
+                if lineHasContent && lineWidth + item.box.OuterWidth > available() + 0.01 {
+                    pendingFloats.append(item.box)
+                } else {
+                    let placed = floats.place(item.box, left: item.box.Style.Float == .left, y: rootY + y,
+                                              containerLeft: rootX, containerRight: rootX + contentWidth)
+                    item.box.X = placed.x - rootX + box.ContentX + item.box.Margin.Left
+                    item.box.Y = placed.y - rootY + box.ContentY + item.box.Margin.Top
+                }
             case .space:
                 breakOpportunity = true
                 // Spaces that collapse never start a line; preserved
@@ -122,6 +165,14 @@ extension Layout {
             case .word, .atomic:
                 let canBreak = breakOpportunity || item.kind == .atomic
                 breakOpportunity = item.kind == .atomic
+                // An empty line squeezed by floats that cannot hold the
+                // word moves down to where the floats end.
+                var guardRounds = 0
+                while !lineHasContent && item.width > available() + 0.01 && narrowed() && guardRounds < 64 {
+                    guardRounds += 1
+                    guard let next = floats.nextBand(after: rootY + y) else { break }
+                    y = next - rootY
+                }
                 if lineHasContent && item.breakable && canBreak && lineWidth + item.width > available() + 0.01 {
                     // Break before the item, at the last space. The
                     // starts of inline elements just before it belong
@@ -159,10 +210,19 @@ extension Layout {
     }
 
     /// Gathers the items of a box's inline content, in order.
-    func collectItems(_ box: Box, owner: Box, cb: ContainingBlock, positionedAncestor: Box,
+    func collectItems(_ box: Box, owner: Box, cb: ContainingBlock, flow: Flow,
                       decoration: TextDecoration, decorationColor: draw.Color,
                       into items: inout [Item], pendingSpace: inout Bool) {
+        let positionedAncestor = flow.positioned
         for child in box.Children {
+            if child.Style.Float != .none && child.Kind != .text {
+                // A float in the text, whatever kind of box: laid out
+                // now, placed when the line it is in is known.
+                layoutBlock(child, cb: cb, flow: flow.root(child))
+                items.append(Item(kind: .float, box: child, owner: owner))
+                pendingSpace = false
+                continue
+            }
             switch child.Kind {
             case .text:
                 textItems(child, owner: owner, decoration: decoration, decorationColor: decorationColor,
@@ -180,7 +240,7 @@ extension Layout {
                 items.append(openItem)
                 let deco = decoration.Union(child.Style.TextDecoration)
                 let decoColor = child.Style.TextDecoration.IsNone ? decorationColor : (child.Style.TextDecorationColor ?? child.Style.Color)
-                collectItems(child, owner: child, cb: cb, positionedAncestor: positionedAncestor,
+                collectItems(child, owner: child, cb: cb, flow: flow,
                              decoration: deco, decorationColor: decoColor, into: &items, pendingSpace: &pendingSpace)
                 var closeItem = Item(kind: .close, box: child, owner: child)
                 closeItem.width = child.Margin.Right + child.Border.Right + child.Padding.Right
@@ -192,7 +252,7 @@ extension Layout {
                     positionedAncestor.Positioned.append(child)
                     continue
                 }
-                layoutAtomic(child, cb: cb, positionedAncestor: positionedAncestor)
+                layoutAtomic(child, cb: cb, flow: flow)
                 var item = Item(kind: .atomic, box: child, owner: owner)
                 item.width = child.OuterWidth
                 item.breakable = owner.Style.WhiteSpace.Wraps
@@ -202,10 +262,16 @@ extension Layout {
                 items.append(Item(kind: .lineBreak, box: child, owner: owner))
                 pendingSpace = false
             case .block:
-                // A block among inline content: laid out where it lands,
-                // as its own line. Anonymous wrapping normally keeps this
-                // from happening; a float here is the common case.
-                layoutBlock(child, cb: cb, positionedAncestor: positionedAncestor)
+                if child.Style.Float != .none {
+                    // A float in the text: laid out now, placed when the
+                    // line it is in is known.
+                    layoutBlock(child, cb: cb, flow: flow.root(child))
+                    items.append(Item(kind: .float, box: child, owner: owner))
+                    continue
+                }
+                // Anonymous wrapping keeps blocks out of inline content;
+                // one that got here is laid out as its own line.
+                layoutBlock(child, cb: cb, flow: flow)
                 var item = Item(kind: .atomic, box: child, owner: owner)
                 item.width = child.OuterWidth
                 items.append(item)
@@ -303,11 +369,11 @@ extension Layout {
     /// Makes a line from its items: places them left to right, merges
     /// neighbouring text of one box into fragments, aligns everything
     /// vertically, and applies text-align.
-    func buildLine(_ box: Box, items: [Item], y: float32, contentWidth: float32, indent: float32,
+    func buildLine(_ box: Box, items: [Item], y: float32, startX: float32, contentWidth: float32, indent: float32,
                    open: inout [OpenSpan], isFirst: Bool) -> Line {
         let strutStyle = box.Style
         let strutFace = strutStyle.Face
-        var line = Line(x: box.ContentX, y: box.ContentY + y, width: contentWidth)
+        var line = Line(x: box.ContentX + startX, y: box.ContentY + y, width: contentWidth)
 
         var fragments: [Fragment] = []
         var x: float32 = indent
@@ -383,7 +449,7 @@ extension Layout {
                     emitSpan(open[idx], endX: x, isLast: true)
                     open.remove(at: idx)
                 }
-            case .lineBreak, .newline:
+            case .lineBreak, .newline, .float:
                 break
             }
         }
@@ -547,7 +613,7 @@ extension Layout {
         var items: [Item] = []
         var pendingSpace = false
         let cb = ContainingBlock(width: 0, height: nil)
-        collectItems(box, owner: box, cb: cb, positionedAncestor: box,
+        collectItems(box, owner: box, cb: cb, flow: Flow(positioned: box, floats: FloatContext(), x: 0, y: 0),
                      decoration: TextDecoration(), decorationColor: box.Style.Color,
                      into: &items, pendingSpace: &pendingSpace)
         var lineMax: float32 = 0
@@ -569,7 +635,7 @@ extension Layout {
                 } else {
                     current += item.width
                 }
-            case .atomic:
+            case .atomic, .float:
                 lineMax += item.width
                 if current > minW { minW = current }
                 current = item.width

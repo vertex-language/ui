@@ -15,7 +15,8 @@ extension Layout {
     /// Lays out a flex container's items: rows or columns, one line or
     /// wrapped, grown and shrunk into the space, aligned. Answers the
     /// content height.
-    func layoutFlex(_ box: Box, contentWidth: float32, positionedAncestor: Box) -> float32 {
+    func layoutFlex(_ box: Box, contentWidth: float32, flow: Flow) -> float32 {
+        let positionedAncestor = flow.positioned
         let s = box.Style
         let isRow = s.FlexDirection.IsRow
         let reverse = s.FlexDirection.IsReverse
@@ -45,9 +46,9 @@ extension Layout {
             let edgesMain = isRow ? child.Padding.Horizontal + child.Border.Horizontal : child.Padding.Vertical + child.Border.Vertical
             if let b = basisLength.Resolve(mainAvailable ?? 0), !(basisLength == .percent(0) && mainAvailable == nil) {
                 basis = cs.BoxSizing == .borderBox ? b : b + edgesMain
-                if case .percent = basisLength, mainAvailable == nil { basis = contentSize(child, isRow: isRow, cb: cb, positionedAncestor: positionedAncestor) }
+                if case .percent = basisLength, mainAvailable == nil { basis = contentSize(child, isRow: isRow, cb: cb, flow: flow) }
             } else {
-                basis = contentSize(child, isRow: isRow, cb: cb, positionedAncestor: positionedAncestor)
+                basis = contentSize(child, isRow: isRow, cb: cb, flow: flow)
             }
             var minMain: float32 = 0
             var maxMain: float32 = 1e9
@@ -114,7 +115,7 @@ extension Layout {
                 let it = items[idx]
                 let child = it.box
                 if isRow {
-                    layoutFixed(child, width: it.main, height: nil, cb: cb, positionedAncestor: positionedAncestor)
+                    layoutFixed(child, width: it.main, height: nil, cb: cb, flow: flow)
                     items[idx].cross = child.OuterHeight
                 } else {
                     let cs = child.Style
@@ -127,7 +128,7 @@ extension Layout {
                         let iw = intrinsicWidths(child)
                         w = iw.max < contentWidth - child.Margin.Horizontal ? iw.max : contentWidth - child.Margin.Horizontal
                     }
-                    layoutFixed(child, width: w, height: it.main, cb: cb, positionedAncestor: positionedAncestor)
+                    layoutFixed(child, width: w, height: it.main, cb: cb, flow: flow)
                     items[idx].cross = child.OuterWidth
                 }
                 if items[idx].cross > lineCross { lineCross = items[idx].cross }
@@ -174,9 +175,9 @@ extension Layout {
                 case .stretch:
                     // Stretch to the line when the cross size is auto.
                     if isRow && child.Style.Height.IsAuto {
-                        layoutFixed(child, width: it.main, height: lineCross - child.Margin.Vertical, cb: cb, positionedAncestor: positionedAncestor)
+                        layoutFixed(child, width: it.main, height: lineCross - child.Margin.Vertical, cb: cb, flow: flow)
                     } else if !isRow && child.Style.Width.IsAuto {
-                        layoutFixed(child, width: lineCross - child.Margin.Horizontal, height: it.main, cb: cb, positionedAncestor: positionedAncestor)
+                        layoutFixed(child, width: lineCross - child.Margin.Horizontal, height: it.main, cb: cb, flow: flow)
                     }
                 case .baseline, .flexStart, .auto: crossPos = 0
                 }
@@ -215,14 +216,14 @@ extension Layout {
 
     /// The main size an item wants when nothing sets it: its widest
     /// content for a row, its laid-out height for a column.
-    func contentSize(_ child: Box, isRow: Bool, cb: ContainingBlock, positionedAncestor: Box) -> float32 {
+    func contentSize(_ child: Box, isRow: Bool, cb: ContainingBlock, flow: Flow) -> float32 {
         if isRow {
             return intrinsicWidths(child).max
         }
         let cs = child.Style
         var w: float32 = cb.Width - child.Margin.Horizontal
         if let given = widthFromStyle(child, cs.Width, cbWidth: cb.Width) { w = given }
-        layoutFixed(child, width: w, height: nil, cb: cb, positionedAncestor: positionedAncestor)
+        layoutFixed(child, width: w, height: nil, cb: cb, flow: flow)
         return child.Height
     }
 
@@ -299,7 +300,7 @@ extension Layout {
 
     /// Lays out a block with its border-box width set and, when given,
     /// its height; the content decides the rest.
-    func layoutFixed(_ box: Box, width: float32, height: float32?, cb: ContainingBlock, positionedAncestor: Box) {
+    func layoutFixed(_ box: Box, width: float32, height: float32?, cb: ContainingBlock, flow: Flow) {
         if box.Kind == .replaced {
             sizeReplaced(box, cb: cb)
             if let h = height { box.Height = h }
@@ -307,7 +308,11 @@ extension Layout {
             return
         }
         box.Width = clampWidth(box, width, cbWidth: cb.Width)
-        let contentHeight = layoutContent(box, positionedAncestor: box.Style.IsPositioned ? box : positionedAncestor)
+        box.Positioned = []
+        box.DefiniteInnerHeight = nil
+        if let g = height { box.DefiniteInnerHeight = g - box.Padding.Vertical - box.Border.Vertical }
+        else if let g = heightFromStyle(box, box.Style.Height, cbHeight: cb.Height) { box.DefiniteInnerHeight = g - box.Padding.Vertical - box.Border.Vertical }
+        let contentHeight = layoutContent(box, flow: flow.root(box))
         var h = contentHeight + box.Padding.Vertical + box.Border.Vertical
         if let given = height {
             h = given

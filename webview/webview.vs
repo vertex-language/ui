@@ -6,6 +6,7 @@ import "text/css/selector"
 import "ui/window"
 import "ui/draw"
 import "fs"
+import "ui/image"
 
 /// How a view is set up.
 public struct Config {
@@ -161,7 +162,9 @@ public final class WebView {
         }
         for img in doc.ElementsByTagName("img") {
             if let src = img.GetAttribute("src"), images[src] == nil {
-                if let bytes = loadResource(Resolve(src)), let decoded = decodeImage(bytes) {
+                if src.hasPrefix("data:") {
+                    if let decoded = image.DecodeDataURL(src) { images[src] = decoded }
+                } else if let bytes = loadResource(Resolve(src)), let decoded = decodeImage(bytes) {
                     images[src] = decoded
                 }
             }
@@ -428,10 +431,8 @@ public final class WebView {
     }
 }
 
-/// Decodes an image's bytes; nothing decodes yet, so images wait on a
-/// decoder and are laid out from their attributes.
 func decodeImage(_ bytes: [uint8]) -> draw.Image? {
-    return nil
+    return image.Decode(bytes)
 }
 
 func collectTags(_ node: html.Node, _ tag: string, _ out: inout [html.Node]) {
