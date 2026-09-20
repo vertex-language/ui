@@ -65,6 +65,7 @@ public final class WebView {
     let resolver: StyleResolver
     let context: selector.MatchContext
     var builder: BoxTreeBuilder
+    var layout: Layout? = nil
     var root: Box?
     var displayList: [PaintItem] = []
     var images: [string: draw.Image] = [:]
@@ -338,6 +339,7 @@ public final class WebView {
             if let r = root {
                 let layout = Layout(viewportWidth: size.Width, viewportHeight: size.Height)
                 layout.Run(r)
+                self.layout = layout
                 contentHeight = r.Y + r.Height + r.Margin.Bottom
                 contentWidth = r.X + r.Width + r.Margin.Right
                 if r.ContentWidth + r.X + r.ContentX > contentWidth { contentWidth = r.ContentWidth + r.X + r.ContentX }
@@ -376,6 +378,12 @@ public final class WebView {
         if scroll.Y < 0 { scroll.Y = 0 }
         if scroll.X > maxX { scroll.X = maxX }
         if scroll.X < 0 { scroll.X = 0 }
+        // Sticky boxes follow the scroll, which repaints them.
+        if let l = layout, !l.Sticky.isEmpty {
+            if l.UpdateSticky(scrollY: scroll.Y, viewportHeight: size.Height) {
+                needsPaint = true
+            }
+        }
     }
 
     // MARK: - Drawing

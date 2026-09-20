@@ -616,6 +616,24 @@ func testView() {
     _ = sv.Handle(.keyDown(window.KeyEvent(Code: .home, Key: "Home", Modifiers: window.Modifiers(), Repeat: false)))
     check(sv.BoxFor(selectNode)!.Text == "Alpha", "Home goes to the first option")
 
+    // A sticky header follows the scroll within its container.
+    let st = webview.WebView()
+    st.SetBounds(origin: window.Point(0, 0), size: window.Size(300, 200))
+    st.LoadHTML("<body style='margin:0'><div id=wrap style='height:600px'><div style='height:100px'></div><div id=h style='position:sticky;top:10px;height:20px'></div><div style='height:480px'></div></div><div style='height:1000px'></div></body>")
+    var stPixels = [uint8](repeating: 0, count: 300 * 200 * 4)
+    st.Draw(into: &stPixels, canvasSize: window.PixelSize(300, 200), scale: 1)
+    let hBox = st.BoxFor(st.QuerySelector("#h")!)!
+    check(hBox.OffsetY == 0, "unscrolled, a sticky box sits where it was laid out")
+    st.SetScrollOffset(window.Point(0, 300))
+    st.Draw(into: &stPixels, canvasSize: window.PixelSize(300, 200), scale: 1)
+    check(near(hBox.OffsetY, 210), "scrolled past it, it sticks 10px below the top (offset \(hBox.OffsetY))")
+    st.SetScrollOffset(window.Point(0, 590))
+    st.Draw(into: &stPixels, canvasSize: window.PixelSize(300, 200), scale: 1)
+    check(near(hBox.OffsetY, 480), "it stops at its container's end (offset \(hBox.OffsetY))")
+    st.SetScrollOffset(window.Point(0, 0))
+    st.Draw(into: &stPixels, canvasSize: window.PixelSize(300, 200), scale: 1)
+    check(hBox.OffsetY == 0, "and comes back when scrolled up")
+
     // Selecting text by dragging.
     let sel = webview.WebView()
     sel.SetBounds(origin: window.Point(0, 0), size: window.Size(400, 200))

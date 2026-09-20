@@ -20,6 +20,8 @@ public struct ContainingBlock {
 public final class Layout {
     public var ViewportWidth: float32
     public var ViewportHeight: float32
+    /// Boxes with position: sticky, whose offsets follow the scroll.
+    public var Sticky: [Box] = []
 
     public init(viewportWidth: float32, viewportHeight: float32) {
         ViewportWidth = viewportWidth
@@ -29,6 +31,7 @@ public final class Layout {
     /// Lays out the whole tree from the root. The root box fills the
     /// viewport's width; its height is its content's.
     public func Run(_ root: Box) {
+        Sticky = []
         let cb = ContainingBlock(width: ViewportWidth, height: ViewportHeight)
         root.X = 0
         root.Y = 0
@@ -585,6 +588,44 @@ public final class Layout {
             else if let r = s.Right.Resolve(cbWidth) { box.OffsetX = -r }
             if let t = s.Top.Resolve(cbHeight ?? 0) { box.OffsetY = t }
             else if let b = s.Bottom.Resolve(cbHeight ?? 0) { box.OffsetY = -b }
+        } else if s.Position == .sticky {
+            Sticky.append(box)
         }
+    }
+
+    /// Moves sticky boxes to follow a scroll: a box with `top` stays
+    /// that far below the viewport's top while its container is in
+    /// view, and likewise for `bottom`. Answers whether any moved.
+    public func UpdateSticky(scrollY: float32, viewportHeight: float32) -> bool {
+        var moved = false
+        for box in Sticky {
+            guard let parent = box.Parent else { continue }
+            let pos = pagePosition(box)
+            let base = pos.y - box.OffsetY
+            let parentPos = pagePosition(parent)
+            let parentTop = parentPos.y + parent.ContentY
+            let parentBottom = parentPos.y + parent.Height - parent.Padding.Bottom - parent.Border.Bottom
+            var offset: float32 = 0
+            if let top = box.Style.Top.Resolve(viewportHeight) {
+                let wanted = scrollY + top
+                if wanted > base {
+                    offset = wanted - base
+                    let limit = parentBottom - (base + box.Height + box.Margin.Bottom)
+                    if offset > limit { offset = limit > 0 ? limit : 0 }
+                }
+            } else if let bottom = box.Style.Bottom.Resolve(viewportHeight) {
+                let wanted = scrollY + viewportHeight - bottom - box.Height
+                if wanted < base {
+                    offset = wanted - base
+                    let limit = parentTop - base
+                    if offset < limit { offset = limit < 0 ? limit : 0 }
+                }
+            }
+            if offset != box.OffsetY {
+                box.OffsetY = offset
+                moved = true
+            }
+        }
+        return moved
     }
 }
