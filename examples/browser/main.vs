@@ -36,6 +36,7 @@ final class Browser {
     var pixelSize: window.PixelSize
     var history: [string] = []
     var position: int = -1
+    var visited: Set<string> = []
     var url: string = ""
     var status: string = ""
     var cursor: window.Cursor = window.Cursor.arrow
@@ -53,6 +54,7 @@ final class Browser {
         pixels = [uint8](repeating: 0, count: int(pixelSize.Width) * int(pixelSize.Height) * 4)
         let size = win.Size()
         view.SetBounds(origin: window.Point(0, chromeHeight), size: window.Size(size.Width, size.Height - chromeHeight))
+        view.IsVisited { url in self.visited.contains(url) }
     }
 
     func requestFrame() {
@@ -65,6 +67,7 @@ final class Browser {
     /// Loads a page by URL or path and records it in the history.
     func go(_ target: string, record: Bool = true) {
         url = target
+        visited.insert(target)
         if target.contains("://") {
             view.LoadHTML("""
             <body style="font-family: system-ui; margin: 40px; color: #333">
@@ -148,8 +151,12 @@ final class Browser {
                      color: status.isEmpty ? draw.Color(0x24, 0x29, 0x2f) : draw.Color(0x57, 0x60, 0x6a))
     }
 
-    func frame() {
+    func frame(_ time: float64) {
         frameWanted = false
+        if view.Advance(time: time) || view.NeedsAnimation() {
+            // A blinking caret wants the next frame too.
+            requestFrame()
+        }
         let scale = win.ScaleFactor()
         draw.WithCanvas(&pixels, width: pixelSize.Width, height: pixelSize.Height) { c in
             drawChrome(c, scale: scale)
@@ -185,7 +192,7 @@ final class Browser {
             if k.Modifiers.Meta && k.Code == .bracketLeft { back(); return true }
             if k.Modifiers.Meta && k.Code == .bracketRight { forward(); return true }
             if k.Modifiers.Meta && k.Code == .r { go(url, record: false); return true }
-            if view.Handle(event) == .handled || view.NeedsRepaint() { requestFrame() }
+            if view.Handle(event) == .handled || view.NeedsRepaint() || view.NeedsAnimation() { requestFrame() }
         case .text(_):
             if view.Handle(event) == .handled { requestFrame() }
         case .pointerMoved(_):
@@ -198,15 +205,15 @@ final class Browser {
         case .pointerDown(let p, _):
             if chromeClick(p.Position) { return true }
             _ = view.Handle(event)
-            if view.NeedsRepaint() { requestFrame() }
+            if view.NeedsRepaint() || view.NeedsAnimation() { requestFrame() }
         case .pointerUp(_, _):
             _ = view.Handle(event)
             if view.NeedsRepaint() { requestFrame() }
         case .scrolled(_), .pointerLeft:
             _ = view.Handle(event)
             if view.NeedsRepaint() { requestFrame() }
-        case .frame(_):
-            frame()
+        case .frame(let f):
+            frame(f.Time)
         default:
             break
         }

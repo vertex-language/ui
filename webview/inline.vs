@@ -127,7 +127,7 @@ extension Layout {
             }
             let b = band()
             let line = buildLine(box, items: lineItems, y: y, startX: b.start, contentWidth: b.width,
-                                 indent: firstLine ? indent : 0, open: &open, isFirst: firstLine)
+                                 indent: firstLine ? indent : 0, open: &open, isFirst: firstLine, isLast: forced)
             box.Lines.append(line)
             y += line.Height
             for f in line.Fragments {
@@ -415,7 +415,7 @@ extension Layout {
     /// neighbouring text of one box into fragments, aligns everything
     /// vertically, and applies text-align.
     func buildLine(_ box: Box, items: [Item], y: float32, startX: float32, contentWidth: float32, indent: float32,
-                   open: inout [OpenSpan], isFirst: Bool) -> Line {
+                   open: inout [OpenSpan], isFirst: Bool, isLast: Bool) -> Line {
         let strutStyle = box.Style
         let strutFace = strutStyle.Face
         var line = Line(x: box.ContentX + startX, y: box.ContentY + y, width: contentWidth)
@@ -619,6 +619,10 @@ extension Layout {
             switch strutStyle.TextAlign {
             case .center: dx = free / 2
             case .right, .end: dx = free
+            case .justify:
+                // Every line but the last spreads its free room over its
+                // spaces; the fragments and spans after each one move on.
+                if !isLast { justify(&fragments, &spans, free: free) }
             default: dx = 0
             }
         }
@@ -684,6 +688,62 @@ extension Layout {
             line.Fragments.insert(m, at: 0)
         }
         return line
+    }
+
+    /// Widens the spaces of a line's text fragments so it fills its free
+    /// room. Spaces are the zero glyphs the fragments carry.
+    func justify(_ fragments: inout [Fragment], _ spans: inout [Span], free: float32) {
+        var spaces = 0
+        for f in fragments where f.Kind == .text {
+            for g in f.Run.Glyphs where g == 0 { spaces += 1 }
+        }
+        if spaces == 0 { return }
+        let each = free / float32(spaces)
+        // Where each fragment began and how much it grew, for the spans.
+        var oldX: [float32] = []
+        var grown: [float32] = []
+        var shift: float32 = 0
+        var i = 0
+        while i < fragments.count {
+            var f = fragments[i]
+            oldX.append(f.X)
+            f.X += shift
+            var g: float32 = 0
+            if f.Kind == .text {
+                var k = 0
+                while k < f.Run.Glyphs.count {
+                    if f.Run.Glyphs[k] == 0 {
+                        f.Run.Advances[k] += each
+                        g += each
+                    }
+                    k += 1
+                }
+                f.Run.Width += g
+                f.Width += g
+            }
+            grown.append(g)
+            shift += g
+            fragments[i] = f
+            i += 1
+        }
+        // A span's edges move by the growth of the fragments before them.
+        func moved(_ x: float32) -> float32 {
+            var d: float32 = 0
+            var k = 0
+            while k < oldX.count {
+                if oldX[k] < x - 0.01 { d += grown[k] }
+                k += 1
+            }
+            return x + d
+        }
+        i = 0
+        while i < spans.count {
+            let x0 = moved(spans[i].X)
+            let x1 = moved(spans[i].X + spans[i].Width)
+            spans[i].X = x0
+            spans[i].Width = x1 - x0
+            i += 1
+        }
     }
 
     /// The widest and narrowest the inline content of a box can be.

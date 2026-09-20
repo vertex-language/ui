@@ -87,6 +87,8 @@ public final class WebView {
     var pressed: html.Node? = nil
     var caret: int = 0
     var values: [int64: string] = [:]
+    var caretVisible = true
+    var caretPhase: float64 = 0
     var selectionAnchor: TextPosition? = nil
     var selectionFocus: TextPosition? = nil
     var selecting = false
@@ -100,6 +102,7 @@ public final class WebView {
     var onAction: ((string, string) -> Void)? = nil
     var onTitle: ((string) -> Void)? = nil
     var onHoverLink: ((string?) -> Void)? = nil
+    var isVisited: ((string) -> bool)? = nil
 
     public init(configuration: Config? = nil) {
         if let c = configuration {
@@ -146,6 +149,12 @@ public final class WebView {
         resolver.Author = RuleSet()
         fontFaces = []
         images = [:]
+        // <base href> moves the base for everything that follows.
+        for base in doc.ElementsByTagName("base") {
+            if let href = base.GetAttribute("href"), !href.isEmpty {
+                baseURL = Resolve(href)
+            }
+        }
         values = [:]
         focused = nil
         hovered = nil
@@ -195,7 +204,31 @@ public final class WebView {
 
     /// Adds a stylesheet: its rules, and the fonts its @font-face rules
     /// name, registered from the files they point at.
-    func addSheet(_ sheet: css.StyleSheet) {
+    func addSheet(_ sheet: css.StyleSheet, depth: int = 0) {
+        // @import brings another sheet in first, as it precedes the rules.
+        if depth < 8 {
+            for at in sheet.AtRules where at.Name == "import" {
+                let b = [uint8](at.Params.utf8)
+                var url = ""
+                var i = 0
+                // The URL is the first string or url() in the params.
+                if b.count > 4 && startsWithBytes(b, "url(") {
+                    var j = 4
+                    while j < b.count && (b[j] == 34 || b[j] == 39 || b[j] == 32) { j += 1 }
+                    let start = j
+                    while j < b.count && b[j] != 41 && b[j] != 34 && b[j] != 39 { j += 1 }
+                    url = draw.stringOf(b, start, j)
+                } else if !b.isEmpty && (b[0] == 34 || b[0] == 39) {
+                    i = 1
+                    while i < b.count && b[i] != b[0] { i += 1 }
+                    url = draw.stringOf(b, 1, i)
+                }
+                if url.isEmpty { continue }
+                if let bytes = loadResource(Resolve(url)) {
+                    addSheet(css.Parse(draw.stringOf(bytes, 0, bytes.count)), depth: depth + 1)
+                }
+            }
+        }
         resolver.Author.Add(sheet)
         for at in sheet.AtRules where at.Name == "font-face" {
             var family = ""
@@ -301,6 +334,30 @@ public final class WebView {
     }
 
     public func NeedsRepaint() -> bool { return needsRepaint || needsStyle || needsLayout || needsPaint }
+
+    /// Whether the view has something moving on its own -- a blinking
+    /// caret -- and wants frames while it does. A host that gets true
+    /// calls `Advance` with each frame's time and keeps requesting frames.
+    public func NeedsAnimation() -> bool {
+        if let f = focused { return isTextControl(f) }
+        return false
+    }
+
+    /// Moves the view's own animation to a time in seconds: the caret
+    /// blinks at a second per cycle. Answers whether a repaint is needed.
+    public func Advance(time: float64) -> bool {
+        guard NeedsAnimation() else { return false }
+        if caretPhase < 0 { caretPhase = time }
+        let phase = time - caretPhase
+        let cycles = phase - float64(int64(phase))
+        let visible = cycles < 0.5
+        if visible != caretVisible {
+            caretVisible = visible
+            needsPaint = true
+            return true
+        }
+        return false
+    }
     public func DesiredCursor() -> window.Cursor? { return cursor }
 
     // MARK: - Callbacks
@@ -314,6 +371,9 @@ public final class WebView {
     public func OnTitleChanged(_ handler: (string) -> Void) { onTitle = handler }
     /// Called with a link's URL as the pointer moves onto it, and nil off it.
     public func OnHoverLink(_ handler: (string?) -> Void) { onHoverLink = handler }
+    /// Asked whether a resolved URL has been visited, for `:visited`.
+    /// Call `Invalidate()` when the answer changes.
+    public func IsVisited(_ handler: (string) -> bool) { isVisited = handler; needsStyle = true }
 
     // MARK: - The pipeline
 
@@ -327,6 +387,14 @@ public final class WebView {
             context.Hovered = hovered
             context.Focused = focused
             context.Active = pressed
+            if let v = isVisited, resolver.UsesVisited {
+                context.Visited = { node in
+                    if let href = node.GetAttribute("href") { return v(self.Resolve(href)) }
+                    return false
+                }
+            } else {
+                context.Visited = nil
+            }
             if let doc = Document {
                 root = builder.Build(doc)
             } else {
@@ -356,6 +424,7 @@ public final class WebView {
                 let b = DisplayListBuilder()
                 b.focused = focused?.Id ?? 0
                 b.caret = caret
+                b.caretVisible = caretVisible
                 b.images = images
                 if let range = selectionRange() {
                     b.selectionStart = range.start
@@ -548,6 +617,7 @@ public final class WebView {
             let value = valueOf(n)
             caret = value.utf8.count
         }
+        showCaret()
         if resolver.UsesFocus { needsStyle = true } else { needsPaint = true }
     }
 
@@ -579,7 +649,14 @@ public final class WebView {
 
     func setValue(_ node: html.Node, _ value: string) {
         values[node.Id] = value
+        showCaret()
         needsStyle = true
+    }
+
+    /// Shows the caret now, as typing or moving does, restarting its blink.
+    func showCaret() {
+        caretVisible = true
+        caretPhase = -1
     }
 }
 
@@ -592,4 +669,15 @@ func collectTags(_ node: html.Node, _ tag: string, _ out: inout [html.Node]) {
         if c.TagName == tag { out.append(c) }
         collectTags(c, tag, &out)
     }
+}
+
+func startsWithBytes(_ b: [uint8], _ prefix: string) -> bool {
+    let p = [uint8](prefix.utf8)
+    if b.count < p.count { return false }
+    var i = 0
+    while i < p.count {
+        if b[i] != p[i] { return false }
+        i += 1
+    }
+    return true
 }

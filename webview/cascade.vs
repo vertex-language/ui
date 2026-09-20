@@ -46,6 +46,7 @@ public final class RuleSet {
     public var UsesHover: bool = false
     public var UsesFocus: bool = false
     public var UsesActive: bool = false
+    public var UsesVisited: bool = false
     /// Whether any rule depends on the viewport: a media query, or a
     /// length in vw or vh, which a resize has to recompute.
     public var UsesViewport: bool = false
@@ -102,6 +103,7 @@ public final class RuleSet {
                 if p.Name == "hover" { UsesHover = true }
                 if p.Name == "focus" || p.Name == "focus-within" || p.Name == "focus-visible" { UsesFocus = true }
                 if p.Name == "active" { UsesActive = true }
+                if p.Name == "visited" { UsesVisited = true }
                 for inner in p.Inner { noteState(inner) }
             }
         }
@@ -283,6 +285,7 @@ public final class StyleResolver {
     public var UsesHover: bool { return Author.UsesHover || UA.UsesHover }
     public var UsesFocus: bool { return Author.UsesFocus || UA.UsesFocus }
     public var UsesActive: bool { return Author.UsesActive || UA.UsesActive }
+    public var UsesVisited: bool { return Author.UsesVisited || UA.UsesVisited }
 
     /// Whether any rule generates content before or after elements.
     public var HasPseudoElements: bool { return !UA.before.isEmpty || !UA.after.isEmpty || !Author.before.isEmpty || !Author.after.isEmpty }

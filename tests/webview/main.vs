@@ -509,6 +509,42 @@ func countDark(_ pixels: [uint8], _ w: int32, _ r: draw.IRect) -> int {
 }
 
 @MainActor
+func testTextFeatures() {
+    print("Justify, visited links, @import")
+    let view = webview.WebView()
+    view.SetBounds(origin: window.Point(0, 0), size: window.Size(300, 200))
+    view.Configuration.ResourceLoader = { url in
+        if url == "/site/extra.css" { return [uint8]("a:visited { color: rgb(1, 2, 3) } .imp { margin-left: 33px }".utf8) }
+        return nil
+    }
+    view.IsVisited { url in url == "/site/seen.html" }
+    view.LoadHTML("""
+    <style>@import url("extra.css"); p { font: 16px Helvetica; text-align: justify; width: 200px; margin: 0 }</style>
+    <base href="/site/">
+    <p id=p>alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu</p>
+    <div class=imp id=imp></div>
+    <a id=seen href="seen.html">seen</a> <a id=new href="new.html">new</a>
+    """, baseURL: "/elsewhere/")
+    let p = view.BoxFor(view.QuerySelector("#p")!)!
+    check(p.Lines.count >= 2, "the paragraph wraps (\(p.Lines.count) lines)")
+    let first = p.Lines[0]
+    var right: float32 = 0
+    for f in first.Fragments { if f.X + f.Width > right { right = f.X + f.Width } }
+    check(right > 199 && right < 201, "a justified line reaches the right edge (got \(right))")
+    let last = p.Lines[p.Lines.count - 1]
+    var lastRight: float32 = 0
+    for f in last.Fragments { if f.X + f.Width > lastRight { lastRight = f.X + f.Width } }
+    check(lastRight < 190, "the last line is not stretched (got \(lastRight))")
+    let imp = view.BoxFor(view.QuerySelector("#imp")!)!
+    check(imp.Margin.Left == 33, "an @import sheet resolved against <base href> applies (margin \(imp.Margin.Left))")
+    let seen = view.BoxFor(view.QuerySelector("#seen")!)!
+    let fresh = view.BoxFor(view.QuerySelector("#new")!)!
+    check(seen.Style.Color == draw.Color(1, 2, 3), "a visited link takes :visited")
+    check(fresh.Style.Color != draw.Color(1, 2, 3), "an unvisited link does not")
+    check(view.NeedsAnimation() == false, "nothing animates without a focused field")
+}
+
+@MainActor
 func testView() {
     print("The view")
     let view = webview.WebView()
@@ -706,6 +742,7 @@ func main() -> int32 {
     testWrapping()
     testPseudoElements()
     testGrid()
+    testTextFeatures()
     testView()
     if failures == 0 {
         print("ALL WEBVIEW CHECKS PASSED")

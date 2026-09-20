@@ -422,9 +422,11 @@ extension WebView {
             }
         case .arrowLeft:
             caret = k.Modifiers.Alt ? wordStart(bytes, before: caret) : (k.Modifiers.Meta ? 0 : previousChar(bytes, caret))
+            showCaret()
             needsPaint = true
         case .arrowRight:
             caret = k.Modifiers.Alt ? wordEnd(bytes, after: caret) : (k.Modifiers.Meta ? bytes.count : nextChar(bytes, caret))
+            showCaret()
             needsPaint = true
         case .home:
             caret = 0
@@ -537,6 +539,7 @@ extension WebView {
             i += 1
         }
         caret = best
+        showCaret()
         needsPaint = true
     }
 
