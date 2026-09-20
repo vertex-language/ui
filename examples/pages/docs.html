@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ui/webview — Reference</title>
+<style>
+  :root { --accent: #0969da; --ink: #1f2328; --muted: #656d76; --line: #d0d7de; --bg: #ffffff; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { font-family: -apple-system, system-ui, sans-serif; font-size: 14px; line-height: 1.5; color: #1f2328; background: #ffffff; }
+  .topbar { height: 52px; background: #24292f; color: #fff; display: flex; align-items: center; padding: 0 20px; gap: 18px; }
+  .topbar .logo { font-weight: 700; font-size: 16px; }
+  .topbar input { width: 260px; height: 30px; border-radius: 6px; border: 1px solid #57606a; background: #2f363d; color: #fff; padding: 0 10px; }
+  .topbar .spacer { flex: 1; }
+  .topbar a { color: #c9d1d9; text-decoration: none; font-size: 13px; }
+  .topbar a:hover { color: #fff; }
+  .layout { display: flex; min-height: calc(100% - 52px); }
+  nav.side { width: 240px; border-right: 1px solid #d0d7de; padding: 20px 0; background: #f6f8fa; }
+  nav.side h4 { margin: 0 20px 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: #656d76; }
+  nav.side ul { list-style: none; margin: 0 0 18px; padding: 0; }
+  nav.side li a { display: block; padding: 5px 20px; color: #1f2328; text-decoration: none; }
+  nav.side li a:hover { background: #eaeef2; }
+  nav.side li a.current { background: #ddf4ff; color: #0969da; font-weight: 600; border-right: 3px solid #0969da; }
+  main { flex: 1; padding: 28px 40px; max-width: 860px; }
+  main h1 { font-size: 28px; margin: 0 0 6px; }
+  main h2 { font-size: 20px; margin: 32px 0 10px; padding-bottom: 6px; border-bottom: 1px solid #d0d7de; }
+  main p { margin: 0 0 14px; }
+  .lead { font-size: 16px; color: #656d76; }
+  .callout { border-left: 4px solid #0969da; background: #ddf4ff; padding: 10px 14px; border-radius: 0 6px 6px 0; margin: 14px 0; }
+  .callout.warn { border-color: #d4a72c; background: #fff8c5; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; background: #eff1f3; padding: 2px 5px; border-radius: 4px; }
+  pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; padding: 14px 16px; overflow: auto; font-size: 12.5px; line-height: 1.45; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0 20px; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid #d0d7de; vertical-align: top; }
+  th { background: #f6f8fa; font-weight: 600; }
+  td code { white-space: nowrap; }
+  .kbd { display: inline-block; border: 1px solid #d0d7de; border-bottom-width: 3px; border-radius: 4px; padding: 0 6px; font-size: 12px; background: #fff; }
+  .grid { display: flex; flex-wrap: wrap; gap: 12px; margin: 14px 0; }
+  .tile { flex: 1 1 200px; border: 1px solid #d0d7de; border-radius: 8px; padding: 12px 14px; }
+  .tile b { display: block; margin-bottom: 4px; }
+  .tile span { color: #656d76; font-size: 13px; }
+  .steps { counter-reset: step; padding-left: 0; list-style: decimal; margin-left: 20px; }
+  .steps li { margin: 6px 0; }
+  footer { margin-top: 40px; padding-top: 14px; border-top: 1px solid #d0d7de; color: #656d76; font-size: 12px; display: flex; justify-content: space-between; }
+  .badge { display: inline-block; background: #2da44e; color: #fff; font-size: 11px; padding: 1px 7px; border-radius: 10px; vertical-align: middle; margin-left: 6px; }
+  .right { float: right; margin: 0 0 12px 20px; width: 200px; border: 1px solid #d0d7de; border-radius: 8px; padding: 10px; font-size: 12px; background: #f6f8fa; }
+  .right img { width: 100%; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="logo">Vertex</span>
+  <input type="text" placeholder="Search the reference…">
+  <span class="spacer"></span>
+  <a href="home.html">Home</a><a href="page2.html">Pages</a><a href="effects.html">Effects</a>
+</div>
+<div class="layout">
+  <nav class="side">
+    <h4>Packages</h4>
+    <ul>
+      <li><a href="#window">ui/window</a></li>
+      <li><a href="#draw">ui/draw</a></li>
+      <li><a href="#font">ui/font</a></li>
+      <li><a href="#webview" class="current">ui/webview</a></li>
+    </ul>
+    <h4>Guides</h4>
+    <ul>
+      <li><a href="#">Embedding a view</a></li>
+      <li><a href="#">Handling events</a></li>
+      <li><a href="#">Loading resources</a></li>
+    </ul>
+  </nav>
+  <main>
+    <h1>ui/webview <span class="badge">stable</span></h1>
+    <p class="lead">An HTML and CSS engine that paints pages into a pixel buffer, takes the window's events, and tells the host what the user did.</p>
+
+    <div class="right"><img src="vertex.png" alt="A swatch"><br>The engine draws images through <code>ui/image</code>, which decodes what the platform decodes.</div>
+
+    <p>The view is a guest in a window: the host owns the event loop and the surface, the view owns a rectangle of it. Everything in this page is drawn by the engine itself, from the top bar to this sentence, with <b>no JavaScript</b> involved — the DOM is edited from Vertex instead.</p>
+
+    <div class="callout">The engine is pure Vertex above the platform's fonts and images. A page that renders here renders the same on any display scale.</div>
+
+    <h2 id="embedding">Embedding</h2>
+    <p>Create a view, give it bounds, load a page, and forward events. Press <span class="kbd">Tab</span> to move between fields and <span class="kbd">⌘</span><span class="kbd">C</span> to copy a selection.</p>
+<pre><code>let view = webview.WebView()
+view.SetBounds(origin: window.Point(0, 52), size: window.Size(w, h - 52))
+try view.LoadFile("docs/index.html")
+view.OnNavigate { url in try? view.LoadFile(url) }</code></pre>
+
+    <h2 id="api">API</h2>
+    <table>
+      <thead><tr><th style="width:220px">Method</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td><code>LoadHTML(_:baseURL:)</code></td><td>Shows a page from a string; relative references resolve against the base.</td></tr>
+        <tr><td><code>Handle(_:)</code></td><td>Takes a window event and answers whether it was for the page.</td></tr>
+        <tr><td><code>Draw(into:canvasSize:scale:)</code></td><td>Paints the view into the window's pixels at the device scale, rounded corners, glyphs and all.</td></tr>
+        <tr><td><code>SelectedText()</code></td><td>The text the user selected, with a line break where it spans lines.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout warn">Resizing the window relays out; it does not restyle unless the page uses media queries or viewport units.</div>
+
+    <h2 id="features">What you get</h2>
+    <div class="grid">
+      <div class="tile"><b>Cascade</b><span>Specificity, inheritance, media queries, pseudo-classes and pseudo-elements.</span></div>
+      <div class="tile"><b>Layout</b><span>Blocks, lines, floats, flex, tables, positioning.</span></div>
+      <div class="tile"><b>Paint</b><span>Gradients, shadows, images, rounded corners, text decorations.</span></div>
+      <div class="tile"><b>Input</b><span>Links, forms, focus, selection, the clipboard.</span></div>
+    </div>
+
+    <h2 id="steps">Getting a page up</h2>
+    <ol class="steps">
+      <li>Parse the markup with <code>text/html</code>; the tree is the DOM.</li>
+      <li>Resolve styles, build boxes, lay them out at the view's width.</li>
+      <li>Build a display list and rasterize it at the display's scale.</li>
+    </ol>
+
+    <footer><span>ui/webview · Vertex standard library</span><span>Rendered by the engine itself</span></footer>
+  </main>
+</div>
+</body>
+</html>

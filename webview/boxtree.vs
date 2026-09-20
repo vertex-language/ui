@@ -78,22 +78,23 @@ public final class BoxTreeBuilder {
         }
         let flex = parent.Style.IsFlexContainer
         if flex {
-            // Every flex item is a block; text between items becomes an
-            // anonymous block item, whitespace-only text nothing.
+            // Every child element is a flex item, blockified; a run of
+            // text between them becomes an anonymous block item, and
+            // whitespace-only text nothing.
             var run: [Box] = []
             for b in made {
-                if b.Kind == .text && isBlank(b.Text) { continue }
-                if b.Kind == .block {
-                    flushInline(&run, into: parent)
-                    parent.AppendChild(b)
-                } else if b.Kind == .inlineBlock || b.Kind == .replaced {
-                    flushInline(&run, into: parent)
+                if b.Kind == .text {
+                    if !isBlank(b.Text) { run.append(b) }
+                    continue
+                }
+                flushInline(&run, into: parent)
+                if b.Kind == .inline || b.Kind == .inlineBlock {
                     b.Kind = .block
                     b.Style.Display = b.Style.Display.Blockified
-                    parent.AppendChild(b)
-                } else {
-                    run.append(b)
+                } else if b.Kind == .lineBreak {
+                    continue
                 }
+                parent.AppendChild(b)
             }
             flushInline(&run, into: parent)
             return
