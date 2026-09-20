@@ -144,6 +144,26 @@ public final class Face {
 // a family at a few sizes and weights, so the list is short.
 var faces: [string: [Face]] = [:]
 
+// Family names a page gave font files, mapped to what the files call
+// themselves.
+var aliases: [string: string] = [:]
+
+/// Registers a font file so that its family can be used, under the name
+/// given, as @font-face does. Answers false where the file is not a font.
+public func Register(path: string, as name: string) -> bool {
+    var buf = [CChar](repeating: 0, count: 256)
+    let ok = buf.withUnsafeMutableBufferPointer { bp in
+        cfont_register(path, bp.baseAddress, int32(bp.count))
+    }
+    if ok == 0 { return false }
+    let family = string(cString: buf)
+    if !family.isEmpty {
+        aliases[trimQuotes(name)] = family
+        faces = [:]
+    }
+    return true
+}
+
 /// The face for a spec: the first of its families the system has, at
 /// the size, weight and slant asked for, or the platform's sans-serif
 /// where it has none of them.
@@ -161,7 +181,8 @@ public func Load(_ spec: Spec) -> Face {
     var family = ""
     var i = 0
     while i < spec.Families.count && id < 0 {
-        let name = trimQuotes(spec.Families[i])
+        var name = trimQuotes(spec.Families[i])
+        if let real = aliases[name] { name = real }
         if !name.isEmpty {
             id = cfont_face(name, double(size), spec.Weight, spec.Italic ? 1 : 0)
             family = name

@@ -113,6 +113,36 @@ int32_t cfont_face(const char* family, double size, int32_t weight, int32_t ital
     }
 }
 
+int32_t cfont_register(const char* path, char* family, int32_t cap) {
+    if (path == NULL)
+        return 0;
+    @autoreleasepool {
+        NSString* p = [NSString stringWithUTF8String:path];
+        if (p == nil)
+            return 0;
+        NSURL* url = [NSURL fileURLWithPath:p];
+        CFArrayRef descriptors = CTFontManagerCreateFontDescriptorsFromURL((__bridge CFURLRef)url);
+        if (descriptors == NULL || CFArrayGetCount(descriptors) == 0) {
+            if (descriptors) CFRelease(descriptors);
+            return 0;
+        }
+        // Registration may fail when the font is already registered;
+        // the family is still what the descriptor says.
+        CFErrorRef error = NULL;
+        CTFontManagerRegisterFontsForURL((__bridge CFURLRef)url, kCTFontManagerScopeProcess, &error);
+        if (error) CFRelease(error);
+        CTFontDescriptorRef d = (CTFontDescriptorRef)CFArrayGetValueAtIndex(descriptors, 0);
+        CFStringRef name = CTFontDescriptorCopyAttribute(d, kCTFontFamilyNameAttribute);
+        if (name != NULL && family != NULL && cap > 0) {
+            if (!CFStringGetCString(name, family, cap, kCFStringEncodingUTF8))
+                family[0] = 0;
+        }
+        if (name) CFRelease(name);
+        CFRelease(descriptors);
+        return 1;
+    }
+}
+
 void cfont_metrics(int32_t face, double* ascent, double* descent, double* leading,
                    double* x_height, double* space_advance) {
     CTFontRef font = fontOf(face);

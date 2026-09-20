@@ -7,6 +7,7 @@ import "ui/window"
 import "ui/draw"
 import "fs"
 import "ui/image"
+import "ui/font"
 
 /// How a view is set up.
 public struct Config {
@@ -67,6 +68,7 @@ public final class WebView {
     var root: Box?
     var displayList: [PaintItem] = []
     var images: [string: draw.Image] = [:]
+    var fontFaces: [string] = []
 
     var origin: window.Point
     var size: window.Size
@@ -141,6 +143,7 @@ public final class WebView {
     func load(_ doc: html.Document) {
         Document = doc
         resolver.Author = RuleSet()
+        fontFaces = []
         images = [:]
         values = [:]
         focused = nil
@@ -150,12 +153,12 @@ public final class WebView {
         for head in doc.ElementsByTagName("head") {
             for child in head.Children where child.Kind == html.NodeKind.element {
                 if child.TagName == "style" {
-                    resolver.Author.Add(css.Parse(child.InnerText()))
+                    addSheet(css.Parse(child.InnerText()))
                 } else if child.TagName == "link" {
                     let rel = lower(child.GetAttribute("rel") ?? "")
                     if rel == "stylesheet", let href = child.GetAttribute("href") {
                         if let bytes = loadResource(Resolve(href)) {
-                            resolver.Author.Add(css.Parse(draw.stringOf(bytes, 0, bytes.count)))
+                            addSheet(css.Parse(draw.stringOf(bytes, 0, bytes.count)))
                         }
                     }
                 }
@@ -166,7 +169,7 @@ public final class WebView {
             var styles: [html.Node] = []
             collectTags(body, "style", &styles)
             for style in styles {
-                resolver.Author.Add(css.Parse(style.InnerText()))
+                addSheet(css.Parse(style.InnerText()))
             }
         }
         var wanted: [string] = []
@@ -187,6 +190,38 @@ public final class WebView {
         if let cb = onTitle { cb(title) }
         needsStyle = true
         needsRepaint = true
+    }
+
+    /// Adds a stylesheet: its rules, and the fonts its @font-face rules
+    /// name, registered from the files they point at.
+    func addSheet(_ sheet: css.StyleSheet) {
+        resolver.Author.Add(sheet)
+        for at in sheet.AtRules where at.Name == "font-face" {
+            var family = ""
+            var sources: [string] = []
+            for d in at.Declarations {
+                if d.Property == "font-family" {
+                    for t in d.Tokens where t.Kind == .string || t.Kind == .ident {
+                        family = family.isEmpty ? t.Value : family + " " + t.Value
+                    }
+                } else if d.Property == "src" {
+                    for t in d.Tokens where t.Kind == .url { sources.append(t.Value) }
+                }
+            }
+            if family.isEmpty { continue }
+            for src in sources {
+                var path = Resolve(src)
+                if path.hasPrefix("file://") {
+                    let b = [uint8](path.utf8)
+                    path = draw.stringOf(b, 7, b.count)
+                }
+                if path.contains("://") { continue }
+                if font.Register(path: path, as: family) {
+                    fontFaces.append(family)
+                    break
+                }
+            }
+        }
     }
 
     /// A URL made absolute against the page's base: absolute ones and

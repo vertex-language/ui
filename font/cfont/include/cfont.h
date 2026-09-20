@@ -18,6 +18,12 @@ extern "C" {
 // is looked up, and is -1 where no installed family has it.
 int32_t cfont_face(const char* family, double size, int32_t weight, int32_t italic);
 
+// Registers a font file with the system for this process, so that its
+// family can be asked for by name. Copies that family name, as the
+// file spells it, NUL-terminated, into family (up to cap bytes), and
+// answers 1, or 0 where the file is not a font it can read.
+int32_t cfont_register(const char* path, char* family, int32_t cap);
+
 // The face's metrics at its size, in CSS pixels: ascent and descent are
 // positive distances from the baseline; the advance is a space's.
 void cfont_metrics(int32_t face, double* ascent, double* descent, double* leading,
