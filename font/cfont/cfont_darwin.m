@@ -260,15 +260,8 @@ int32_t cfont_glyph(int32_t face, uint32_t glyph, double scale,
     CGPoint origin = CGPointMake(-(CGFloat)x0, -(CGFloat)y0);
     CTFontDrawGlyphs(font, &g, &origin, 1, ctx);
     CGContextRelease(ctx);
-    // Rows come out bottom first; the mask wants the top row first.
-    for (int32_t y = 0; y < h / 2; y++) {
-        uint8_t* a = buf + (size_t)y * (size_t)w;
-        uint8_t* b = buf + (size_t)(h - 1 - y) * (size_t)w;
-        for (int32_t x = 0; x < w; x++) {
-            uint8_t t = a[x];
-            a[x] = b[x];
-            b[x] = t;
-        }
-    }
+    // The bitmap's first row in memory is the top of the image, which
+    // is what the mask wants, though the context's origin is at the
+    // bottom left.
     return need;
 }

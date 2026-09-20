@@ -131,6 +131,18 @@ public final class Layout {
             box.Width = clampWidth(box, w, cbWidth: cb.Width)
         } else {
             box.Width = clampWidth(box, available > 0 ? available : 0, cbWidth: cb.Width)
+            // A max-width that left room: auto margins take it.
+            let free = cb.Width - box.Width
+            if free > 0 {
+                if s.MarginLeft.IsAuto && s.MarginRight.IsAuto {
+                    box.Margin.Left = free / 2
+                    box.Margin.Right = free / 2
+                } else if s.MarginLeft.IsAuto {
+                    box.Margin.Left = free - box.Margin.Right
+                } else if s.MarginRight.IsAuto {
+                    box.Margin.Right = free - box.Margin.Left
+                }
+            }
         }
 
         // A height given up front is what the children's percentages
@@ -212,8 +224,10 @@ public final class Layout {
                 if child.X + child.Width > contentRight { contentRight = child.X + child.Width }
                 continue
             }
-            if child.Style.Clear != .none && !first {
-                // Nothing to clear past yet: floats live in the flow.
+            // A list item whose content starts with a block hands its
+            // marker to that block's first line.
+            if first && !box.Marker.isEmpty && child.Marker.isEmpty {
+                child.Marker = box.Marker
             }
             layoutBlock(child, cb: cb, positionedAncestor: positionedAncestor)
 

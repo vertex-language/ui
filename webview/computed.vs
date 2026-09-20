@@ -94,7 +94,7 @@ public final class ComputedStyle {
     public var WhiteSpace: WhiteSpace = .normal
     public var ListStyleType: ListStyleType = .disc
     public var ListStylePosition: ListStylePosition = .outside
-    public var Cursor: Cursor = .auto
+    public var Cursor: CursorKind = .auto
     public var Visibility: Visibility = .visible
     public var BorderCollapse: BorderCollapse = .separate
     public var BorderSpacing: float32 = 2

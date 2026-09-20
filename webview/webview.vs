@@ -1,0 +1,442 @@
+package webview
+
+import "text/html"
+import "text/css"
+import "text/css/selector"
+import "ui/window"
+import "ui/draw"
+import "fs"
+
+/// How a view is set up.
+public struct Config {
+    /// Where relative URLs in the page are resolved from: a directory
+    /// path or a file URL. Nil resolves nothing.
+    public var BaseURL: string?
+    /// What shows behind a page that sets no background.
+    public var BackgroundColor: draw.Color
+    /// Answers the bytes of a resource the page refers to -- a
+    /// stylesheet, an image -- by its resolved URL, or nil. Without one,
+    /// file paths under BaseURL are read from disk.
+    public var ResourceLoader: ((string) -> [uint8]?)?
+
+    public init(baseURL: string? = nil, backgroundColor: draw.Color = draw.Color.white) {
+        BaseURL = baseURL
+        BackgroundColor = backgroundColor
+        ResourceLoader = nil
+    }
+}
+
+public enum EventResult: Equatable {
+    case handled
+    case ignored
+}
+
+/// A field of a submitted form.
+public struct FormField {
+    public var Name: string
+    public var Value: string
+}
+
+/// A form submission: where it goes and what it carries.
+public struct Submission {
+    public var Action: string
+    public var Method: string
+    public var Fields: [FormField]
+}
+
+/// An HTML page inside a window: parses, styles, lays out and paints
+/// what it is given, takes the window's events for the part of the
+/// window it covers, and tells the host what the user did.
+///
+/// Everything here runs on the main thread, where the window is.
+@MainActor
+public final class WebView {
+    public var Configuration: Config
+    public var Document: html.Document?
+
+    let resolver: StyleResolver
+    let context: selector.MatchContext
+    var builder: BoxTreeBuilder
+    var root: Box?
+    var displayList: [PaintItem] = []
+    var images: [string: draw.Image] = [:]
+
+    var origin: window.Point
+    var size: window.Size
+    var scroll: window.Point
+    var contentWidth: float32 = 0
+    var contentHeight: float32 = 0
+
+    var needsStyle = true
+    var needsLayout = true
+    var needsPaint = true
+    var needsRepaint = true
+
+    var hovered: html.Node? = nil
+    var focused: html.Node? = nil
+    var pressed: html.Node? = nil
+    var caret: int = 0
+    var values: [int64: string] = [:]
+    var cursor: window.Cursor = window.Cursor.arrow
+    var pointer: window.Point = window.Point(-1, -1)
+    var baseURL: string = ""
+    var title: string = ""
+
+    var onNavigate: ((string) -> Void)? = nil
+    var onSubmit: ((Submission) -> Void)? = nil
+    var onAction: ((string, string) -> Void)? = nil
+    var onTitle: ((string) -> Void)? = nil
+    var onHoverLink: ((string?) -> Void)? = nil
+
+    public init(configuration: Config? = nil) {
+        if let c = configuration {
+            Configuration = c
+        } else {
+            Configuration = Config()
+        }
+        Document = nil
+        resolver = StyleResolver(ua: UserAgentRules())
+        context = selector.MatchContext()
+        builder = BoxTreeBuilder(resolver: resolver, context: context)
+        origin = window.Point(0, 0)
+        size = window.Size(800, 600)
+        scroll = window.Point(0, 0)
+        baseURL = Configuration.BaseURL ?? ""
+    }
+
+    // MARK: - Loading
+
+    /// Shows an HTML page. Its <style> elements and <link rel=stylesheet>
+    /// references are read; relative references resolve against baseURL
+    /// or the configuration's.
+    public func LoadHTML(_ source: string, baseURL: string? = nil) {
+        if let b = baseURL { self.baseURL = b }
+        let doc = html.Parse(source)
+        load(doc)
+    }
+
+    /// Shows an HTML file from disk; its folder is the base for what it
+    /// refers to.
+    public func LoadFile(_ path: string) throws {
+        let bytes = try fs.ReadFile(fs.Path(path))
+        let text = draw.stringOf(bytes, 0, bytes.count)
+        var dir = path
+        let b = [uint8](path.utf8)
+        var i = b.count - 1
+        while i >= 0 && b[i] != 47 { i -= 1 }
+        dir = i >= 0 ? draw.stringOf(b, 0, i + 1) : ""
+        LoadHTML(text, baseURL: dir)
+    }
+
+    func load(_ doc: html.Document) {
+        Document = doc
+        resolver.Author = RuleSet()
+        images = [:]
+        values = [:]
+        focused = nil
+        hovered = nil
+        pressed = nil
+        scroll = window.Point(0, 0)
+        for head in doc.ElementsByTagName("head") {
+            for child in head.Children where child.Kind == html.NodeKind.element {
+                if child.TagName == "style" {
+                    resolver.Author.Add(css.Parse(child.InnerText()))
+                } else if child.TagName == "link" {
+                    let rel = lower(child.GetAttribute("rel") ?? "")
+                    if rel == "stylesheet", let href = child.GetAttribute("href") {
+                        if let bytes = loadResource(Resolve(href)) {
+                            resolver.Author.Add(css.Parse(draw.stringOf(bytes, 0, bytes.count)))
+                        }
+                    }
+                }
+            }
+        }
+        // Styles in the body count too, as browsers allow.
+        for body in doc.ElementsByTagName("body") {
+            var styles: [html.Node] = []
+            collectTags(body, "style", &styles)
+            for style in styles {
+                resolver.Author.Add(css.Parse(style.InnerText()))
+            }
+        }
+        for img in doc.ElementsByTagName("img") {
+            if let src = img.GetAttribute("src"), images[src] == nil {
+                if let bytes = loadResource(Resolve(src)), let decoded = decodeImage(bytes) {
+                    images[src] = decoded
+                }
+            }
+        }
+        title = doc.Title
+        if let cb = onTitle { cb(title) }
+        needsStyle = true
+        needsRepaint = true
+    }
+
+    /// A URL made absolute against the page's base: absolute ones and
+    /// fragments are left alone.
+    public func Resolve(_ url: string) -> string {
+        if url.isEmpty { return baseURL }
+        if url.hasPrefix("#") { return url }
+        if url.contains("://") || url.hasPrefix("data:") || url.hasPrefix("/") || url.hasPrefix("about:") { return url }
+        if baseURL.isEmpty { return url }
+        if baseURL.hasSuffix("/") { return baseURL + url }
+        return baseURL + "/" + url
+    }
+
+    func loadResource(_ url: string) -> [uint8]? {
+        if let loader = Configuration.ResourceLoader {
+            return loader(url)
+        }
+        var path = url
+        if path.hasPrefix("file://") {
+            let b = [uint8](path.utf8)
+            path = draw.stringOf(b, 7, b.count)
+        }
+        if path.contains("://") { return nil }
+        if let bytes = try? fs.ReadFile(fs.Path(path)) {
+            return bytes
+        }
+        return nil
+    }
+
+    /// The page's title, from <title>.
+    public var Title: string { return title }
+
+    /// Adds an image the page may refer to by URL, as when the host
+    /// fetches it; the page is laid out again with it.
+    public func SetImage(_ url: string, _ image: draw.Image) {
+        images[url] = image
+        needsStyle = true
+    }
+
+    // MARK: - Geometry
+
+    /// Where the view sits in the window, and how big it is, in points.
+    public func SetBounds(origin: window.Point, size: window.Size) {
+        let widthChanged = self.size.Width != size.Width
+        let heightChanged = self.size.Height != size.Height
+        self.origin = origin
+        self.size = size
+        if widthChanged || heightChanged {
+            resolver.ViewportWidth = size.Width
+            resolver.ViewportHeight = size.Height
+            if resolver.Author.UsesViewport || resolver.UA.UsesViewport {
+                needsStyle = true
+            } else {
+                needsLayout = true
+            }
+        }
+        needsRepaint = true
+    }
+
+    public func Bounds() -> (origin: window.Point, size: window.Size) {
+        return (origin: origin, size: size)
+    }
+
+    public func ScrollOffset() -> window.Point { return scroll }
+
+    public func SetScrollOffset(_ offset: window.Point) {
+        scroll = offset
+        clampScroll()
+        needsRepaint = true
+    }
+
+    /// The size of the whole page, in points.
+    public func ContentSize() -> window.Size {
+        update()
+        return window.Size(contentWidth, contentHeight)
+    }
+
+    public func NeedsRepaint() -> bool { return needsRepaint || needsStyle || needsLayout || needsPaint }
+    public func DesiredCursor() -> window.Cursor? { return cursor }
+
+    // MARK: - Callbacks
+
+    /// Called with the resolved URL when the user follows a link.
+    public func OnNavigate(_ handler: (string) -> Void) { onNavigate = handler }
+    /// Called when a form is submitted: by its button, or Enter in a field.
+    public func OnSubmit(_ handler: (Submission) -> Void) { onSubmit = handler }
+    /// Called when a button outside a form is pressed, with its name and value.
+    public func OnAction(_ handler: (string, string) -> Void) { onAction = handler }
+    public func OnTitleChanged(_ handler: (string) -> Void) { onTitle = handler }
+    /// Called with a link's URL as the pointer moves onto it, and nil off it.
+    public func OnHoverLink(_ handler: (string?) -> Void) { onHoverLink = handler }
+
+    // MARK: - The pipeline
+
+    /// Brings the page up to date: boxes, layout and the display list,
+    /// whichever are stale.
+    func update() {
+        if needsStyle {
+            builder.Images = images
+            builder.Values = values
+            context.Hovered = hovered
+            context.Focused = focused
+            context.Active = pressed
+            if let doc = Document {
+                root = builder.Build(doc)
+            } else {
+                root = nil
+            }
+            needsStyle = false
+            needsLayout = true
+        }
+        if needsLayout {
+            if let r = root {
+                let layout = Layout(viewportWidth: size.Width, viewportHeight: size.Height)
+                layout.Run(r)
+                contentHeight = r.Y + r.Height + r.Margin.Bottom
+                contentWidth = r.X + r.Width + r.Margin.Right
+                if r.ContentWidth + r.X + r.ContentX > contentWidth { contentWidth = r.ContentWidth + r.X + r.ContentX }
+            } else {
+                contentHeight = 0
+                contentWidth = 0
+            }
+            clampScroll()
+            needsLayout = false
+            needsPaint = true
+        }
+        if needsPaint {
+            if let r = root {
+                let b = DisplayListBuilder()
+                b.focused = focused?.Id ?? 0
+                b.caret = caret
+                displayList = b.build(r, viewportWidth: size.Width, viewportHeight: size.Height, background: Configuration.BackgroundColor)
+            } else {
+                displayList = []
+            }
+            needsPaint = false
+            needsRepaint = true
+        }
+    }
+
+    func clampScroll() {
+        let maxY = contentHeight > size.Height ? contentHeight - size.Height : 0
+        let maxX = contentWidth > size.Width ? contentWidth - size.Width : 0
+        if scroll.Y > maxY { scroll.Y = maxY }
+        if scroll.Y < 0 { scroll.Y = 0 }
+        if scroll.X > maxX { scroll.X = maxX }
+        if scroll.X < 0 { scroll.X = 0 }
+    }
+
+    // MARK: - Drawing
+
+    /// Paints the page into the window's pixels at the view's bounds.
+    public func Draw(into pixels: inout [uint8], canvasSize: window.PixelSize, scale: float32) {
+        update()
+        let viewRect = draw.Rect(origin.X, origin.Y, size.Width, size.Height).Snapped(scale: scale)
+        let list = displayList
+        let sx = scroll.X
+        let sy = scroll.Y
+        let bg = Configuration.BackgroundColor
+        let showBar = contentHeight > size.Height
+        let barHeight = size.Height * size.Height / (contentHeight > 0 ? contentHeight : 1)
+        let barY = size.Height > barHeight ? (size.Height - barHeight) * (sy / (contentHeight - size.Height)) : 0
+        draw.WithCanvas(&pixels, width: canvasSize.Width, height: canvasSize.Height) { c in
+            var canvas = c
+            canvas.ClipTo(viewRect)
+            if bg.A > 0 { canvas.Fill(viewRect, bg) }
+            rasterize(list, on: canvas, scale: scale, originX: float32(viewRect.X), originY: float32(viewRect.Y), scrollX: sx, scrollY: sy)
+            if showBar {
+                let track = draw.Rect(origin.X + size.Width - 10, origin.Y + barY + 2, 6, barHeight - 4).Snapped(scale: scale)
+                canvas.FillRounded(track, radii: draw.Radii(all: 3 * scale), draw.Color(0, 0, 0, 90))
+            }
+        }
+        needsRepaint = false
+    }
+
+    // MARK: - Finding things
+
+    /// The element under a point in the window, or nil.
+    public func ElementAt(_ p: window.Point) -> html.Node? {
+        update()
+        return hitAt(p)?.Node
+    }
+
+    func hitAt(_ p: window.Point) -> Hit? {
+        guard let r = root else { return nil }
+        let px = p.X - origin.X + scroll.X
+        let py = p.Y - origin.Y + scroll.Y
+        return hitTest(r, px, py, originX: 0, originY: 0)
+    }
+
+    /// The layout box of an element, once laid out.
+    public func BoxFor(_ node: html.Node) -> Box? {
+        update()
+        return builder.byNode[node.Id]
+    }
+
+    /// The root of the layout tree.
+    public var RootBox: Box? {
+        update()
+        return root
+    }
+
+    public func QuerySelector(_ sel: string) -> html.Node? {
+        guard let doc = Document else { return nil }
+        return selector.QuerySelector(sel, in: doc.Root)
+    }
+
+    public func QuerySelectorAll(_ sel: string) -> [html.Node] {
+        guard let doc = Document else { return [] }
+        return selector.QuerySelectorAll(sel, in: doc.Root)
+    }
+
+    /// The element with keyboard focus.
+    public var FocusedElement: html.Node? { return focused }
+
+    /// Gives an element focus, as clicking it or tabbing to it would.
+    public func Focus(_ node: html.Node?) {
+        if focused?.Id == node?.Id { return }
+        focused = node
+        if let n = node {
+            let value = valueOf(n)
+            caret = value.utf8.count
+        }
+        if resolver.UsesFocus { needsStyle = true } else { needsPaint = true }
+    }
+
+    /// Scrolls so that an element is in view.
+    public func ScrollTo(_ node: html.Node) {
+        update()
+        guard let b = builder.byNode[node.Id] else { return }
+        let pos = pagePosition(b)
+        scroll.Y = pos.y
+        clampScroll()
+        needsRepaint = true
+    }
+
+    /// Marks the page as changed: the host edited the DOM.
+    public func Invalidate() {
+        needsStyle = true
+    }
+
+    /// The text a form control holds now.
+    public func ValueOf(_ node: html.Node) -> string {
+        return valueOf(node)
+    }
+
+    func valueOf(_ node: html.Node) -> string {
+        if let v = values[node.Id] { return v }
+        if node.TagName == "textarea" { return node.InnerText() }
+        return node.GetAttribute("value") ?? ""
+    }
+
+    func setValue(_ node: html.Node, _ value: string) {
+        values[node.Id] = value
+        needsStyle = true
+    }
+}
+
+/// Decodes an image's bytes; nothing decodes yet, so images wait on a
+/// decoder and are laid out from their attributes.
+func decodeImage(_ bytes: [uint8]) -> draw.Image? {
+    return nil
+}
+
+func collectTags(_ node: html.Node, _ tag: string, _ out: inout [html.Node]) {
+    for c in node.Children where c.Kind == html.NodeKind.element {
+        if c.TagName == tag { out.append(c) }
+        collectTags(c, tag, &out)
+    }
+}

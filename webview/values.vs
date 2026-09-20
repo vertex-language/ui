@@ -241,7 +241,7 @@ public enum FontStyle: Equatable {
     case oblique
 }
 
-public enum Cursor: Equatable {
+public enum CursorKind: Equatable {
     case auto
     case `default`
     case pointer

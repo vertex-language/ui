@@ -18,6 +18,7 @@ let package = Package(
         .executable(name: "check-draw", targets: ["check-draw"]),
         .executable(name: "check-font", targets: ["check-font"]),
         .executable(name: "browser", targets: ["browser"]),
+        .executable(name: "snapshot", targets: ["snapshot"]),
     ],
     targets: [
         // The platform's window system, as a C ABI.
@@ -100,6 +101,12 @@ let package = Package(
             name: "check-font",
             dependencies: ["font", "draw"],
             path: "tests/font"
+        ),
+        // An HTML file rendered to a PNG, with no window.
+        .executableTarget(
+            name: "snapshot",
+            dependencies: ["window", "webview", "draw"],
+            path: "examples/snapshot"
         ),
         // Full desktop HTML & CSS browser example.
         .executableTarget(

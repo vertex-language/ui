@@ -1,18 +1,225 @@
-// A lightweight desktop HTML/CSS browser powered by ui/webview.
+// A small desktop browser over ui/webview: an address bar, back and
+// forward, and pages loaded from files. Links between local pages are
+// followed; anything else is shown as a page that says where it went.
+//
+//     vsc run browser [page.html]
 package main
 
+import "fs"
 import "ui/window"
+import "ui/draw"
+import "ui/font"
 import "ui/webview"
 
+let chromeHeight: float32 = 44
 
+/// The page the browser starts on, when it is given none.
+func startPage(_ dir: string) -> string {
+    return dir + "examples/pages/home.html"
+}
+
+/// The folder the program was started in, for finding the sample pages.
+func workingDirectory() -> string {
+    if let cwd = try? fs.Canonical(fs.Path(".")) {
+        let s = cwd.String()
+        return s.hasSuffix("/") ? s : s + "/"
+    }
+    return ""
+}
+
+@MainActor
+final class Browser {
+    let win: window.Window
+    let surface: window.Surface
+    let view: webview.WebView
+    var pixels: [uint8] = []
+    var pixelSize: window.PixelSize
+    var history: [string] = []
+    var position: int = -1
+    var url: string = ""
+    var status: string = ""
+    var cursor: window.Cursor = window.Cursor.arrow
+    var frameWanted = false
+    /// A file the first frame is written to as a PNG, for looking at the
+    /// browser without a screen: --snapshot path.
+    var snapshotPath: string? = nil
+    var snapshotTaken = false
+
+    init(win: window.Window) {
+        self.win = win
+        surface = win.Surface()
+        view = webview.WebView()
+        pixelSize = win.PixelSize()
+        pixels = [uint8](repeating: 0, count: int(pixelSize.Width) * int(pixelSize.Height) * 4)
+        let size = win.Size()
+        view.SetBounds(origin: window.Point(0, chromeHeight), size: window.Size(size.Width, size.Height - chromeHeight))
+    }
+
+    func requestFrame() {
+        if !frameWanted {
+            frameWanted = true
+            win.RequestFrame()
+        }
+    }
+
+    /// Loads a page by URL or path and records it in the history.
+    func go(_ target: string, record: Bool = true) {
+        url = target
+        if target.contains("://") {
+            view.LoadHTML("""
+            <body style="font-family: system-ui; margin: 40px; color: #333">
+              <h2 style="margin-top:0">This browser stays on disk</h2>
+              <p>It was asked to open <code style="background:#eee;padding:2px 6px;border-radius:4px">\(target)</code>.</p>
+              <p>Fetching pages over the network is the host's job; the webview renders whatever it is handed.</p>
+              <p><a href="about:home">Back to the start page</a></p>
+            </body>
+            """)
+        } else if target == "about:home" || target.isEmpty {
+            load(startPage(workingDirectory()))
+        } else {
+            load(target)
+        }
+        if record {
+            while history.count > position + 1 { history.removeLast() }
+            history.append(url)
+            position = history.count - 1
+        }
+        win.SetTitle(view.Title.isEmpty ? "Vertex Browser" : view.Title + " — Vertex Browser")
+        requestFrame()
+    }
+
+    func load(_ path: string) {
+        do {
+            try view.LoadFile(path)
+        } catch {
+            view.LoadHTML("<body style='font-family:system-ui;margin:40px'><h2>Cannot open the file</h2><p>\(path)</p><p><a href='about:home'>Start page</a></p></body>")
+        }
+    }
+
+    func back() {
+        if position > 0 {
+            position -= 1
+            go(history[position], record: false)
+        }
+    }
+
+    func forward() {
+        if position + 1 < history.count {
+            position += 1
+            go(history[position], record: false)
+        }
+    }
+
+    func resized() {
+        let newPx = win.PixelSize()
+        if newPx.Width != pixelSize.Width || newPx.Height != pixelSize.Height {
+            pixelSize = newPx
+            pixels = [uint8](repeating: 0, count: int(pixelSize.Width) * int(pixelSize.Height) * 4)
+        }
+        let size = win.Size()
+        view.SetBounds(origin: window.Point(0, chromeHeight), size: window.Size(size.Width, size.Height - chromeHeight))
+        requestFrame()
+    }
+
+    /// The address bar, the buttons, and the status text.
+    func drawChrome(_ canvas: draw.Canvas, scale: float32) {
+        let w = canvas.Width
+        let h = int32(chromeHeight * scale)
+        canvas.Fill(draw.IRect(0, 0, w, h), draw.Color(0xf0, 0xf2, 0xf5))
+        canvas.Fill(draw.IRect(0, h - 1, w, 1), draw.Color(0xd0, 0xd7, 0xde))
+        let face = font.Load(font.Spec(family: "system-ui", size: 13))
+        // Back and forward.
+        let enabledBack = position > 0
+        let enabledForward = position + 1 < history.count
+        font.DrawRun(canvas, face.Shape("◀"), x: 14 * scale, baseline: 27 * scale, scale: scale,
+                     color: enabledBack ? draw.Color(0x24, 0x29, 0x2f) : draw.Color(0xb0, 0xb4, 0xba))
+        font.DrawRun(canvas, face.Shape("▶"), x: 40 * scale, baseline: 27 * scale, scale: scale,
+                     color: enabledForward ? draw.Color(0x24, 0x29, 0x2f) : draw.Color(0xb0, 0xb4, 0xba))
+        // The address.
+        let bar = draw.Rect(70, 8, float32(w) / scale - 84, chromeHeight - 16).Snapped(scale: scale)
+        canvas.FillRounded(bar, radii: draw.Radii(all: 6 * scale), draw.Color.white)
+        let gray = draw.Color(0xd0, 0xd7, 0xde)
+        canvas.FillRing(bar, radii: draw.Radii(all: 6 * scale), widths: draw.Edges(all: scale), colors: [gray, gray, gray, gray])
+        var shown = url
+        if !status.isEmpty { shown = status }
+        var clipped = canvas
+        clipped.ClipTo(bar)
+        font.DrawRun(clipped, face.Shape(shown), x: 82 * scale, baseline: 27 * scale, scale: scale,
+                     color: status.isEmpty ? draw.Color(0x24, 0x29, 0x2f) : draw.Color(0x57, 0x60, 0x6a))
+    }
+
+    func frame() {
+        frameWanted = false
+        let scale = win.ScaleFactor()
+        draw.WithCanvas(&pixels, width: pixelSize.Width, height: pixelSize.Height) { c in
+            drawChrome(c, scale: scale)
+        }
+        view.Draw(into: &pixels, canvasSize: pixelSize, scale: scale)
+        do {
+            try surface.Present(pixels, size: pixelSize)
+        } catch let e as window.WindowError {
+            print("present: \(e.Message)")
+        } catch {}
+        if let path = snapshotPath, !snapshotTaken {
+            snapshotTaken = true
+            try? fs.WriteFile(fs.Path(path), draw.EncodePNG(draw.Image(width: pixelSize.Width, height: pixelSize.Height, pixels: pixels)))
+        }
+    }
+
+    func chromeClick(_ p: window.Point) -> bool {
+        if p.Y >= chromeHeight { return false }
+        if p.X < 32 { back() } else if p.X < 60 { forward() }
+        return true
+    }
+
+    func handle(_ event: window.Event) -> bool {
+        switch event {
+        case .closeRequested:
+            return false
+        case .resized(_), .scaleFactorChanged(_):
+            resized()
+        case .keyDown(let k):
+            if k.Code == .escape && view.FocusedElement == nil {
+                return false
+            }
+            if k.Modifiers.Meta && k.Code == .bracketLeft { back(); return true }
+            if k.Modifiers.Meta && k.Code == .bracketRight { forward(); return true }
+            if k.Modifiers.Meta && k.Code == .r { go(url, record: false); return true }
+            if view.Handle(event) == .handled || view.NeedsRepaint() { requestFrame() }
+        case .text(_):
+            if view.Handle(event) == .handled { requestFrame() }
+        case .pointerMoved(_):
+            _ = view.Handle(event)
+            if let c = view.DesiredCursor(), c != cursor {
+                cursor = c
+                win.SetCursor(c)
+            }
+            if view.NeedsRepaint() { requestFrame() }
+        case .pointerDown(let p, _):
+            if chromeClick(p.Position) { return true }
+            _ = view.Handle(event)
+            if view.NeedsRepaint() { requestFrame() }
+        case .pointerUp(_, _):
+            _ = view.Handle(event)
+            if view.NeedsRepaint() { requestFrame() }
+        case .scrolled(_), .pointerLeft:
+            _ = view.Handle(event)
+            if view.NeedsRepaint() { requestFrame() }
+        case .frame(_):
+            frame()
+        default:
+            break
+        }
+        return true
+    }
+}
 
 func main() async -> int32 {
     var options = window.Options()
-    options.MinSize = window.Size(400, 300)
-
-    let w: window.Window
+    options.MinSize = window.Size(480, 320)
+    let win: window.Window
     do {
-        w = try window.Create(title: "Vertex Browser", size: window.Size(960, 720), options: options)
+        win = try window.Create(title: "Vertex Browser", size: window.Size(1000, 760), options: options)
     } catch let e as window.WindowError {
         print("failed to create window: \(e.Message)")
         return 1
@@ -20,306 +227,44 @@ func main() async -> int32 {
         return 1
     }
 
-    var pixelSize = w.PixelSize()
-    var pixels = [uint8](repeating: 245, count: int(pixelSize.Width) * int(pixelSize.Height) * 4)
-    let surface = w.Surface()
-    var currentCursor = window.Cursor.arrow
-
-    // Initialize the webview component
-    let view = webview.WebView(configuration: webview.Config(backgroundColor: webview.Color.white))
-
-    let chromeHeight: float32 = 44.0
-    let initialWinSize = w.Size()
-    view.SetBounds(
-        origin: window.Point(0, chromeHeight),
-        size: window.Size(initialWinSize.Width, initialWinSize.Height - chromeHeight)
-    )
-
-    let homeHTML = """
-    <html>
-      <head>
-        <style>
-          body {
-            font-size: 15px;
-            color: #24292f;
-            background-color: #ffffff;
-            margin: 24px;
-          }
-          h1 {
-            font-size: 26px;
-            color: #0969da;
-            margin-bottom: 8px;
-          }
-          .subtitle {
-            font-size: 14px;
-            color: #57609a;
-            margin-bottom: 20px;
-          }
-          .card {
-            background-color: #f6f8fa;
-            border-width: 1px;
-            border-color: #d0d7de;
-            padding: 16px;
-            margin-top: 16px;
-            margin-bottom: 16px;
-          }
-          .tag {
-            color: #1a7f37;
-            font-size: 13px;
-          }
-          ul {
-            margin-top: 12px;
-            padding-left: 24px;
-          }
-          li {
-            margin-top: 6px;
-            margin-bottom: 6px;
-          }
-          a {
-            color: #0969da;
-          }
-          .footer {
-            margin-top: 32px;
-            font-size: 12px;
-            color: #8c959f;
-            border-width: 1px;
-            border-color: #e1e4e8;
-            padding-top: 12px;
-          }
-        </style>
-      </head>
-      <body>
-        <h1>Vertex Pure-Software Webview</h1>
-        <p class="subtitle">A fast, self-contained HTML and CSS rendering engine built in 100% pure Vertex.</p>
-
-        <div class="card">
-          <h3>Architecture Highlights</h3>
-          <p>This page is parsed with <b>text/html</b> and styled with <b>text/css</b>.</p>
-          <p class="tag">Zero external dependencies • CPU Framebuffer Painter • Sub-millisecond layout</p>
-        </div>
-
-        <h3>Quick Navigation</h3>
-        <ul>
-          <li><a href="https://vertex-lang.org/docs">Vertex Language Documentation</a></li>
-          <li><a href="https://vertex-lang.org/packages">Standard Packages Directory</a></li>
-          <li><a href="https://github.com/vertex-language/ui">UI & Window System Repository</a></li>
-        </ul>
-
-        <div class="card">
-          <h3>Interactive Features</h3>
-          <p>Try resizing this window or scrolling with your trackpad or mouse wheel.</p>
-          <p>Hover over hyperlinks to see dynamic cursor switching to <i>pointingHand</i>!</p>
-        </div>
-
-        <div class="card">
-          <h3>Interactive Form Controls</h3>
-          <p>Click inside the input or textarea to type, navigate with arrow keys, and backspace:</p>
-          <div style="margin-top: 10px; margin-bottom: 12px;">
-            <input name="search" placeholder="Type a search query..." style="padding: 8px 12px; font-size: 14px; width: 340px;" />
-          </div>
-          <div style="margin-bottom: 12px;">
-            <textarea name="feedback" placeholder="Write multiple lines of text here..." style="padding: 8px 12px; font-size: 14px; width: 440px; height: 72px;"></textarea>
-          </div>
-          <div>
-            <button name="submit" style="padding: 8px 16px; background-color: #0969da; color: #ffffff; border-radius: 6px; font-size: 14px;">Send Feedback</button>
-          </div>
-        </div>
-
-        <p class="footer">Rendered with ui/webview on Vertex OS Window Host.</p>
-      </body>
-    </html>
-    """
-
-    view.LoadHTML(homeHTML)
-
+    let browser = Browser(win: win)
+    let view = browser.view
+    view.OnNavigate { target in
+        browser.go(target)
+    }
+    view.OnHoverLink { link in
+        browser.status = link ?? ""
+        browser.requestFrame()
+    }
+    view.OnSubmit { submission in
+        var text = "Submitted to \(submission.Action) by \(submission.Method):"
+        for f in submission.Fields {
+            text += " \(f.Name)=\(f.Value)"
+        }
+        print(text)
+        browser.status = text
+        browser.requestFrame()
+    }
     view.OnAction { name, value in
-        print("Action triggered from [\(name)]: '\(value)'")
+        print("action \(name): \(value)")
+    }
+    view.OnTitleChanged { title in
+        win.SetTitle(title.isEmpty ? "Vertex Browser" : title + " — Vertex Browser")
     }
 
-    var currentURL = "about:home"
-    view.OnNavigate { url in
-        print("Navigate clicked: \(url)")
-        currentURL = url
-        // Load a navigation confirmation page
-        let navHTML = """
-        <html>
-          <body style="margin: 24px; font-size: 16px; color: #24292f;">
-            <h1 style="color: #0969da;">Navigation Requested</h1>
-            <p>You clicked a link pointing to:</p>
-            <div style="background-color: #ddf4ff; border: 1px; border-color: #54aeff; padding: 12px; margin: 16px 0;">
-              <b>\(url)</b>
-            </div>
-            <p><a href="about:home">Back to Home</a></p>
-          </body>
-        </html>
-        """
-        if url == "about:home" {
-            view.LoadHTML(homeHTML)
-        } else {
-            view.LoadHTML(navHTML)
-        }
-        w.RequestFrame()
+    var args = CommandLine.arguments
+    if args.count > 2 && args[1] == "--snapshot" {
+        browser.snapshotPath = args[2]
+        args.remove(at: 1)
+        args.remove(at: 1)
     }
+    browser.go(args.count > 1 ? args[1] : "about:home")
 
-    w.RequestFrame()
-
-    while let event = await w.WaitEvent() {
-        switch event {
-        case .closeRequested:
-            w.Close()
+    while let event = await win.WaitEvent() {
+        if !browser.handle(event) {
+            win.Close()
             return 0
-
-        case .keyDown(let k):
-            if k.Code == .escape {
-                w.Close()
-                return 0
-            }
-            let res = view.Handle(event)
-            if res == .handled || view.NeedsRepaint() {
-                w.RequestFrame()
-            }
-
-        case .text(_):
-            let res = view.Handle(event)
-            if res == .handled || view.NeedsRepaint() {
-                w.RequestFrame()
-            }
-
-        case .resized(let sz):
-            let newPx = w.PixelSize()
-            if newPx.Width != pixelSize.Width || newPx.Height != pixelSize.Height {
-                pixelSize = newPx
-                pixels = [uint8](repeating: 245, count: int(pixelSize.Width) * int(pixelSize.Height) * 4)
-            }
-            view.SetBounds(
-                origin: window.Point(0, chromeHeight),
-                size: window.Size(sz.Width, sz.Height - chromeHeight)
-            )
-            w.RequestFrame()
-
-        case .scaleFactorChanged(_):
-            let newPx = w.PixelSize()
-            if newPx.Width != pixelSize.Width || newPx.Height != pixelSize.Height {
-                pixelSize = newPx
-                pixels = [uint8](repeating: 245, count: int(pixelSize.Width) * int(pixelSize.Height) * 4)
-            }
-            let sz = w.Size()
-            view.SetBounds(
-                origin: window.Point(0, chromeHeight),
-                size: window.Size(sz.Width, sz.Height - chromeHeight)
-            )
-            w.RequestFrame()
-
-        case .pointerMoved(_):
-            let _ = view.Handle(event)
-            if let cur = view.DesiredCursor() {
-                if cur != currentCursor {
-                    currentCursor = cur
-                    w.SetCursor(cur)
-                }
-            }
-
-        case .pointerDown(_, _), .pointerUp(_, _):
-            let res = view.Handle(event)
-            if let cur = view.DesiredCursor() {
-                if cur != currentCursor {
-                    currentCursor = cur
-                    w.SetCursor(cur)
-                }
-            }
-            if res == .handled || view.NeedsRepaint() {
-                w.RequestFrame()
-            }
-
-        case .scrolled(_):
-            let res = view.Handle(event)
-            if res == .handled || view.NeedsRepaint() {
-                w.RequestFrame()
-            }
-
-        case .frame(_):
-            let scale = w.ScaleFactor()
-            let cHeightPx = int32(chromeHeight * scale)
-            let curW = pixelSize.Width
-            let curH = pixelSize.Height
-
-            // 1. Draw top chrome / address bar
-            webview.Painter.fillRect(
-                into: &pixels,
-                bufferWidth: curW,
-                bufferHeight: curH,
-                x: 0,
-                y: 0,
-                width: curW,
-                height: cHeightPx,
-                color: webview.Color(r: 235, g: 238, b: 242, a: 255),
-                clipX: 0,
-                clipY: 0,
-                clipWidth: curW,
-                clipHeight: curH
-            )
-            // Address bar border
-            webview.Painter.fillRect(
-                into: &pixels,
-                bufferWidth: curW,
-                bufferHeight: curH,
-                x: 0,
-                y: cHeightPx - 1,
-                width: curW,
-                height: 1,
-                color: webview.Color(r: 208, g: 215, b: 222, a: 255),
-                clipX: 0,
-                clipY: 0,
-                clipWidth: curW,
-                clipHeight: curH
-            )
-            // Address bar URL background
-            let urlBoxPad: int32 = int32(6 * scale)
-            let urlBoxX = int32(16 * scale)
-            let urlBoxW = curW - int32(32 * scale)
-            let urlBoxH = cHeightPx - urlBoxPad * 2
-            webview.Painter.fillRect(
-                into: &pixels,
-                bufferWidth: curW,
-                bufferHeight: curH,
-                x: urlBoxX,
-                y: urlBoxPad,
-                width: urlBoxW,
-                height: urlBoxH,
-                color: webview.Color.white,
-                clipX: 0,
-                clipY: 0,
-                clipWidth: curW,
-                clipHeight: curH
-            )
-            // Address bar URL text
-            webview.FontRenderer.DrawText(
-                into: &pixels,
-                bufferWidth: curW,
-                bufferHeight: curH,
-                x: urlBoxX + int32(8 * scale),
-                y: urlBoxPad + int32(6 * scale),
-                text: currentURL,
-                color: webview.Color(r: 60, g: 65, b: 70, a: 255),
-                fontSize: 13.0,
-                scale: scale
-            )
-
-            // 2. Draw webview layout into canvas
-            view.Draw(into: &pixels, canvasSize: pixelSize, scale: scale)
-
-            // 3. Present pixels
-            do {
-                try surface.Present(pixels, size: pixelSize)
-            } catch let e as window.WindowError {
-                print("present error: \(e.Message)")
-            } catch {
-            }
-
-        default:
-            break
         }
     }
-
     return 0
 }

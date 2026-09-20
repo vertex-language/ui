@@ -62,8 +62,8 @@ extension Layout {
         collectItems(box, owner: box, cb: cb, positionedAncestor: positionedAncestor,
                      decoration: box.Style.TextDecoration, decorationColor: box.Style.TextDecorationColor ?? box.Style.Color,
                      into: &items, pendingSpace: &pendingSpace)
-        // A space at the very end never shows.
-        while let last = items.last, last.kind == .space {
+        // A collapsing space at the very end never shows.
+        while let last = items.last, last.kind == .space, last.owner.Style.WhiteSpace.Collapses {
             items.removeLast()
         }
         if items.isEmpty && box.Marker.isEmpty {
@@ -78,6 +78,9 @@ extension Layout {
         var lineHasContent = false
         var firstLine = true
         var contentRight: float32 = 0
+        // A line may break before a word only where a space came before
+        // it: not between a word and the punctuation stuck to it.
+        var breakOpportunity = true
 
         func available() -> float32 {
             return contentWidth - (firstLine ? indent : 0)
@@ -85,7 +88,7 @@ extension Layout {
 
         func finishLine(forced: Bool) {
             // Trailing spaces hang off the line: they take no room.
-            while let last = lineItems.last, last.kind == .space {
+            while let last = lineItems.last, last.kind == .space, last.owner.Style.WhiteSpace.Collapses {
                 lineItems.removeLast()
             }
             if !lineHasContent && !forced && !firstLine {
@@ -109,13 +112,32 @@ extension Layout {
         for item in items {
             switch item.kind {
             case .space:
-                if !lineHasContent { continue }
+                breakOpportunity = true
+                // Spaces that collapse never start a line; preserved
+                // ones do.
+                if !lineHasContent && item.owner.Style.WhiteSpace.Collapses { continue }
                 lineItems.append(item)
                 lineWidth += item.width
+                if !item.owner.Style.WhiteSpace.Collapses { lineHasContent = true }
             case .word, .atomic:
-                if lineHasContent && item.breakable && lineWidth + item.width > available() + 0.01 {
-                    // Break before the item, at the last space.
+                let canBreak = breakOpportunity || item.kind == .atomic
+                breakOpportunity = item.kind == .atomic
+                if lineHasContent && item.breakable && canBreak && lineWidth + item.width > available() + 0.01 {
+                    // Break before the item, at the last space. The
+                    // starts of inline elements just before it belong
+                    // with it on the new line.
+                    var carried: [Item] = []
+                    while let last = lineItems.last, last.kind == .open {
+                        carried.insert(last, at: 0)
+                        lineWidth -= last.width
+                        lineItems.removeLast()
+                        if let idx = lastIndex(open, of: last.box) { open.remove(at: idx) }
+                    }
                     finishLine(forced: false)
+                    for c in carried {
+                        lineItems.append(c)
+                        lineWidth += c.width
+                    }
                 }
                 lineItems.append(item)
                 lineWidth += item.width
@@ -126,6 +148,7 @@ extension Layout {
             case .lineBreak, .newline:
                 lineItems.append(item)
                 finishLine(forced: true)
+                breakOpportunity = true
             }
         }
         if lineHasContent || box.Lines.isEmpty {
@@ -546,12 +569,15 @@ extension Layout {
                 } else {
                     current += item.width
                 }
+            case .atomic:
+                lineMax += item.width
+                if current > minW { minW = current }
+                current = item.width
+                if current > minW { minW = current }
+                current = 0
             default:
                 lineMax += item.width
                 current += item.width
-                if !item.breakable && item.kind == .word {
-                    // Unbreakable text stays whole.
-                }
             }
         }
         if lineMax > maxW { maxW = lineMax }

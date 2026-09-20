@@ -42,6 +42,9 @@ public final class RuleSet {
     public var UsesHover: bool = false
     public var UsesFocus: bool = false
     public var UsesActive: bool = false
+    /// Whether any rule depends on the viewport: a media query, or a
+    /// length in vw or vh, which a resize has to recompute.
+    public var UsesViewport: bool = false
     var mediaWidth: float32 = -1
     var mediaHeight: float32 = -1
 
@@ -69,6 +72,12 @@ public final class RuleSet {
             decls.append(contentsOf: ParseDeclaration(d))
         }
         if decls.isEmpty { return }
+        if !media.isEmpty { UsesViewport = true }
+        for d in decls {
+            if case .length(_, let unit) = d.Value {
+                if unit == .vw || unit == .vh || unit == .vmin || unit == .vmax { UsesViewport = true }
+            }
+        }
         for text in rule.Selectors {
             let parsed = selector.ParseSelectors(text)
             for sel in parsed {

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Vertex WebView</title>
+  <style>
+    body { font-family: system-ui; font-size: 15px; color: #24292f; background: #ffffff; margin: 0; }
+    header { background: #0d1117; color: #fff; padding: 18px 28px; display: flex; align-items: center; justify-content: space-between; }
+    header h1 { font-size: 20px; margin: 0; font-weight: 600; }
+    nav a { color: #c9d1d9; text-decoration: none; margin-left: 18px; font-size: 14px; }
+    nav a:hover { color: #ffffff; text-decoration: underline; }
+    main { padding: 24px 28px; max-width: 760px; }
+    h2 { font-size: 22px; margin: 0 0 8px; }
+    .lede { color: #57606a; font-size: 16px; margin-top: 0; }
+    .cards { display: flex; gap: 14px; margin: 18px 0; }
+    .card { flex: 1; background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 8px; padding: 14px; }
+    .card h3 { margin: 0 0 6px; font-size: 15px; }
+    .card p { margin: 0; font-size: 13px; color: #57606a; line-height: 1.5; }
+    .tag { display: inline-block; background: #ddf4ff; color: #0969da; border-radius: 10px; padding: 1px 8px; font-size: 12px; margin-top: 8px; }
+    code { background: #eff1f3; padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+    ul.features li { margin: 4px 0; }
+    form { background: #fff; border: 1px solid #d0d7de; border-radius: 8px; padding: 16px; margin-top: 18px; }
+    label { display: block; font-size: 13px; color: #57606a; margin: 10px 0 4px; }
+    input[type=text], textarea { width: 100%; }
+    button.primary { background: #2da44e; color: #fff; border-color: #2a9147; padding: 6px 14px; border-radius: 6px; font-weight: 600; }
+    button.primary:hover { background: #2c974b; }
+    .row { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
+    blockquote { border-left: 4px solid #d0d7de; margin: 16px 0; padding: 4px 14px; color: #57606a; font-style: italic; }
+    footer { border-top: 1px solid #d0d7de; color: #8c959f; font-size: 12px; padding: 14px 28px; margin-top: 30px; }
+    .pill { position: absolute; right: 28px; top: 70px; background: #fff8c5; border: 1px solid #d4a72c; border-radius: 6px; padding: 4px 10px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Vertex WebView</h1>
+    <nav><a href="about:home">Home</a><a href="page2.html">Second page</a><a href="https://github.com/vertex-language/ui">Repository</a></nav>
+  </header>
+  <div class="pill">no JavaScript needed</div>
+  <main>
+    <h2>An HTML and CSS engine in pure Vertex</h2>
+    <p class="lede">Parsed by <code>text/html</code>, styled by <code>text/css</code>, laid out and painted by <code>ui/webview</code> into a plain pixel buffer that <code>ui/window</code> presents.</p>
+
+    <div class="cards">
+      <div class="card"><h3>Cascade</h3><p>Specificity, <b>!important</b>, <i>inheritance</i>, em and rem, media queries, <code>:hover</code> and <code>:focus</code>.</p><span class="tag">style</span></div>
+      <div class="card"><h3>Layout</h3><p>Block flow with collapsing margins, inline formatting with real line breaking, flexbox, and positioned boxes.</p><span class="tag">layout</span></div>
+      <div class="card"><h3>Paint</h3><p>Anti-aliased rounded corners, borders, CoreText glyphs, images, and a display list that scrolls without relayout.</p><span class="tag">paint</span></div>
+    </div>
+
+    <h3>What works today</h3>
+    <ul class="features">
+      <li>Text that wraps, aligns and decorates itself: <u>underlined</u>, <s>struck</s>, <b>bold</b>, <small>small</small>, <sup>super</sup> and <sub>sub</sub>.</li>
+      <li>Lists, ordered and not:<ol type="a"><li>alpha markers</li><li>counted by the engine</li></ol></li>
+      <li>Links you can follow: <a href="page2.html">the second page</a>.</li>
+      <li>Forms with text fields, check boxes, radios, selects and buttons.</li>
+    </ul>
+
+    <blockquote>The DOM is the API. Scripting comes later, on top of the same tree.</blockquote>
+
+    <form action="/search" method="get">
+      <label for="q">Search the docs</label>
+      <input type="text" id="q" name="q" placeholder="Type a query and press Enter">
+      <label for="notes">Notes</label>
+      <textarea id="notes" name="notes">Multiple
+lines</textarea>
+      <div class="row">
+        <label style="margin:0"><input type="checkbox" name="exact" checked> Exact match</label>
+        <label style="margin:0"><input type="radio" name="scope" value="all" checked> Everything</label>
+        <label style="margin:0"><input type="radio" name="scope" value="api"> API only</label>
+        <select name="sort"><option>Relevance</option><option selected>Newest</option></select>
+        <button class="primary" type="submit">Search</button>
+      </div>
+    </form>
+  </main>
+  <footer>Rendered by ui/webview, a package of the Vertex standard library.</footer>
+</body>
+</html>
