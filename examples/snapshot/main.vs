@@ -8,6 +8,8 @@ import "fs"
 import "ui/window"
 import "ui/draw"
 import "ui/webview"
+import "image"
+import "image/png"
 
 func number(_ s: string, _ fallback: float32) -> float32 {
     let b = [uint8](s.utf8)
@@ -38,9 +40,9 @@ func main() -> int32 {
     let ph = int32(height * scale)
     var pixels = [uint8](repeating: 0, count: int(pw) * int(ph) * 4)
     view.Draw(into: &pixels, canvasSize: window.PixelSize(pw, ph), scale: scale)
-    let png = draw.EncodePNG(draw.Image(width: pw, height: ph, pixels: pixels))
+    let encoded = png.Encode(image.RGBA(width: int(pw), height: int(ph), pixels: pixels))
     do {
-        try fs.WriteFile(fs.Path(args[2]), png)
+        try fs.WriteFile(fs.Path(args[2]), encoded)
     } catch {
         print("cannot write \(args[2])")
         return 1

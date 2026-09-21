@@ -10,7 +10,6 @@ let package = Package(
         .library(name: "ui/window", targets: ["window"]),
         .library(name: "ui/draw", targets: ["draw"]),
         .library(name: "ui/font", targets: ["font"]),
-        .library(name: "ui/image", targets: ["image"]),
         .library(name: "ui/webview", targets: ["webview"]),
         .executable(name: "hello", targets: ["hello"]),
         .executable(name: "paint", targets: ["paint"]),
@@ -62,28 +61,10 @@ let package = Package(
             path: "font",
             exclude: ["cfont"]
         ),
-        // The platform's image decoders, as a C ABI.
-        .target(
-            name: "cimage",
-            path: "image/cimage",
-            publicHeadersPath: "include",
-            linkerSettings: [
-                .linkedFramework("CoreFoundation"),
-                .linkedFramework("ImageIO"),
-                .linkedFramework("CoreGraphics"),
-            ]
-        ),
-        // Image decoding over cimage.
-        .target(
-            name: "image",
-            dependencies: ["cimage", "draw"],
-            path: "image",
-            exclude: ["cimage"]
-        ),
         // The webview package: HTML/CSS layout & framebuffer rendering.
         .target(
             name: "webview",
-            dependencies: ["window", "draw", "font", "image"],
+            dependencies: ["window", "draw", "font"],
             path: "webview"
         ),
         // A window that prints what happens to it.
@@ -107,7 +88,7 @@ let package = Package(
         // Automated unit tests for HTML/CSS webview.
         .executableTarget(
             name: "check-webview",
-            dependencies: ["window", "webview", "draw", "font", "image"],
+            dependencies: ["window", "webview", "draw", "font"],
             path: "tests/webview"
         ),
         // The rasterizer checked pixel by pixel.
@@ -125,19 +106,19 @@ let package = Package(
         // An HTML file rendered to a PNG, with no window.
         .executableTarget(
             name: "snapshot",
-            dependencies: ["window", "webview", "draw", "image"],
+            dependencies: ["window", "webview", "draw"],
             path: "examples/snapshot"
         ),
         // The engine timed on a page.
         .executableTarget(
             name: "bench",
-            dependencies: ["window", "webview", "draw", "image"],
+            dependencies: ["window", "webview", "draw"],
             path: "examples/bench"
         ),
         // Full desktop HTML & CSS browser example.
         .executableTarget(
             name: "browser",
-            dependencies: ["window", "webview", "draw", "font", "image"],
+            dependencies: ["window", "webview", "draw", "font"],
             path: "examples/browser"
         ),
     ]

@@ -10,6 +10,8 @@ import "ui/window"
 import "ui/draw"
 import "ui/font"
 import "ui/webview"
+import "image"
+import "image/png"
 
 let chromeHeight: float32 = 44
 
@@ -169,7 +171,7 @@ final class Browser {
         } catch {}
         if let path = snapshotPath, !snapshotTaken {
             snapshotTaken = true
-            try? fs.WriteFile(fs.Path(path), draw.EncodePNG(draw.Image(width: pixelSize.Width, height: pixelSize.Height, pixels: pixels)))
+            try? fs.WriteFile(fs.Path(path), png.Encode(image.RGBA(width: int(pixelSize.Width), height: int(pixelSize.Height), pixels: pixels)))
         }
     }
 

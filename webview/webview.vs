@@ -6,7 +6,8 @@ import "text/css/selector"
 import "ui/window"
 import "ui/draw"
 import "fs"
-import "ui/image"
+import "image"
+import "image/format"
 import "ui/font"
 
 /// How a view is set up.
@@ -190,7 +191,7 @@ public final class WebView {
         for src in wanted {
             if images[src] == nil {
                 if src.hasPrefix("data:") {
-                    if let decoded = image.DecodeDataURL(src) { images[src] = decoded }
+                    if let decoded = format.DecodeDataURL(src) { images[src] = drawable(decoded) }
                 } else if let bytes = loadResource(Resolve(src)), let decoded = decodeImage(bytes) {
                     images[src] = decoded
                 }
@@ -695,7 +696,12 @@ public final class WebView {
 }
 
 func decodeImage(_ bytes: [uint8]) -> draw.Image? {
-    return image.Decode(bytes)
+    guard let decoded = format.Decode(bytes) else { return nil }
+    return drawable(decoded)
+}
+
+func drawable(_ img: image.RGBA) -> draw.Image {
+    return draw.Image(width: int32(img.Width), height: int32(img.Height), pixels: img.Pixels)
 }
 
 func collectTags(_ node: html.Node, _ tag: string, _ out: inout [html.Node]) {
