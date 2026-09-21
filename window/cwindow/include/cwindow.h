@@ -101,7 +101,12 @@ void    cwindow_set_size(int32_t window, double width, double height);
 void    cwindow_set_min_size(int32_t window, double width, double height);
 void    cwindow_set_visible(int32_t window, int32_t visible);
 void    cwindow_set_fullscreen(int32_t window, int32_t fullscreen);
-void    cwindow_set_cursor(int32_t window, int32_t cursor);
+void    cwindow_set_cursor(int32_t window, int32_t cursor);   // 6: hidden
+// A cursor from width x height premultiplied RGBA8 pixels, top row first,
+// scale pixels per point, with its hot spot in pixels. Kept until the next
+// set_cursor.
+int32_t cwindow_set_cursor_image(int32_t window, const uint8_t* rgba, int32_t width, int32_t height,
+                                 int32_t hotX, int32_t hotY, double scale);
 
 // Asks for one CWINDOW_EVENT_FRAME, at the display's next refresh.
 void    cwindow_request_frame(int32_t window);

@@ -182,6 +182,10 @@ static int32_t modifiersFor(NSEventModifierFlags f) {
 @property (nonatomic) int writeFd;
 @property (nonatomic) BOOL signalled;
 @property (nonatomic, strong) id displayLink;
+// A cursor the program drew, kept so it can be put back whenever AppKit
+// resets the cursor (entering the view, moving over it); nil for the
+// system cursors.
+@property (nonatomic, strong) NSCursor* customCursor;
 @end
 
 static NSMutableDictionary* windows;   // NSNumber id -> CWWindow
@@ -262,7 +266,7 @@ static void pushKind(CWWindow* w, int32_t kind, int32_t code, double x, double y
     self.tracking = [[NSTrackingArea alloc]
         initWithRect:NSZeroRect
              options:NSTrackingMouseMoved | NSTrackingMouseEnteredAndExited |
-                     NSTrackingActiveAlways | NSTrackingInVisibleRect
+                     NSTrackingCursorUpdate | NSTrackingActiveAlways | NSTrackingInVisibleRect
                owner:self
             userInfo:nil];
     [self addTrackingArea:self.tracking];
@@ -285,7 +289,21 @@ static void pushKind(CWWindow* w, int32_t kind, int32_t code, double x, double y
     push(self.owner, e);
 }
 
-- (void)mouseMoved:(NSEvent*)e { [self pointer:e kind:CWINDOW_EVENT_POINTER_MOVED button:0]; }
+- (void)mouseMoved:(NSEvent*)e {
+    if (self.owner.customCursor != nil)
+        [self.owner.customCursor set];
+    [self pointer:e kind:CWINDOW_EVENT_POINTER_MOVED button:0];
+}
+- (void)mouseEntered:(NSEvent*)e {
+    if (self.owner.customCursor != nil)
+        [self.owner.customCursor set];
+}
+- (void)cursorUpdate:(NSEvent*)e {
+    if (self.owner.customCursor != nil)
+        [self.owner.customCursor set];
+    else
+        [super cursorUpdate:e];
+}
 - (void)mouseDragged:(NSEvent*)e { [self pointer:e kind:CWINDOW_EVENT_POINTER_MOVED button:0]; }
 - (void)rightMouseDragged:(NSEvent*)e { [self pointer:e kind:CWINDOW_EVENT_POINTER_MOVED button:0]; }
 - (void)otherMouseDragged:(NSEvent*)e { [self pointer:e kind:CWINDOW_EVENT_POINTER_MOVED button:0]; }
@@ -750,6 +768,14 @@ void cwindow_set_cursor(int32_t window, int32_t cursor) {
     CWWindow* w = windowOf(window);
     if (w == nil)
         return;
+    w.customCursor = nil;
+    if (cursor == 6) {
+        // Hidden: a transparent cursor, so it stays per-window rather
+        // than hiding the pointer everywhere as [NSCursor hide] would.
+        uint8_t clear[4] = {0, 0, 0, 0};
+        cwindow_set_cursor_image(window, clear, 1, 1, 0, 0, 1);
+        return;
+    }
     switch (cursor) {
     case 1: [[NSCursor pointingHandCursor] set]; break;
     case 2: [[NSCursor IBeamCursor] set]; break;
@@ -757,6 +783,64 @@ void cwindow_set_cursor(int32_t window, int32_t cursor) {
     case 4: [[NSCursor resizeLeftRightCursor] set]; break;
     case 5: [[NSCursor resizeUpDownCursor] set]; break;
     default: [[NSCursor arrowCursor] set]; break;
+    }
+}
+
+static void freePixels(void* info, const void* data, size_t size);
+
+int32_t cwindow_set_cursor_image(int32_t window, const uint8_t* rgba, int32_t width, int32_t height,
+                                 int32_t hotX, int32_t hotY, double scale) {
+    @autoreleasepool {
+        CWWindow* w = windowOf(window);
+        if (w == nil || rgba == NULL || width <= 0 || height <= 0 || width > 1024 || height > 1024)
+            return CWINDOW_ERR_INVALID;
+        // Cursors are kept by their pixels, hot spot and scale: a remote
+        // desktop switches between a handful of shapes all the time, and
+        // an NSCursor released while AppKit still draws it takes the
+        // process down in CoreGraphics' color converter cache.
+        static NSMutableDictionary* cursors;
+        if (cursors == nil)
+            cursors = [NSMutableDictionary dictionary];
+        size_t size = (size_t)width * (size_t)height * 4;
+        NSMutableData* key = [NSMutableData dataWithBytes:rgba length:size];
+        int32_t meta[3] = {hotX, hotY, (int32_t)(scale * 100)};
+        [key appendBytes:meta length:sizeof meta];
+        [key appendBytes:&width length:sizeof width];
+        NSCursor* known = cursors[key];
+        if (known != nil) {
+            w.customCursor = known;
+            [known set];
+            return CWINDOW_OK;
+        }
+        // Built like cwindow_present's frames: a CGImage over a copy of
+        // the pixels, premultiplied RGBA in sRGB.
+        uint8_t* copy = malloc(size);
+        if (copy == NULL)
+            return CWINDOW_ERR_SYSTEM;
+        memcpy(copy, rgba, size);
+        CGDataProviderRef provider = CGDataProviderCreateWithData(NULL, copy, size, freePixels);
+        CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+        CGImageRef cg = CGImageCreate((size_t)width, (size_t)height, 8, 32, (size_t)width * 4, space,
+                                      (CGBitmapInfo)kCGImageAlphaPremultipliedLast, provider, NULL,
+                                      false, kCGRenderingIntentDefault);
+        CGColorSpaceRelease(space);
+        CGDataProviderRelease(provider);
+        if (cg == NULL)
+            return CWINDOW_ERR_SYSTEM;
+        // scale image pixels per point: 2 for pixels drawn for a Retina display.
+        if (scale <= 0) scale = 1;
+        NSImage* image = [[NSImage alloc] initWithCGImage:cg size:NSMakeSize(width / scale, height / scale)];
+        CGImageRelease(cg);
+        if (hotX < 0) hotX = 0;
+        if (hotY < 0) hotY = 0;
+        if (hotX >= width) hotX = width - 1;
+        if (hotY >= height) hotY = height - 1;
+        NSCursor* cursor = [[NSCursor alloc] initWithImage:image hotSpot:NSMakePoint(hotX / scale, hotY / scale)];
+        if ([cursors count] < 256)
+            cursors[key] = cursor;
+        w.customCursor = cursor;
+        [cursor set];
+        return CWINDOW_OK;
     }
 }
 

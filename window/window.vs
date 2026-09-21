@@ -157,6 +157,8 @@ public enum Cursor: Equatable {
     case crosshair
     case resizeLeftRight
     case resizeUpDown
+    /// No cursor over this window.
+    case hidden
 }
 
 /// Changes the mouse cursor shape when hovered over this window.
@@ -169,8 +171,29 @@ public func (w: borrowing Window) SetCursor(_ cursor: Cursor) {
     case .crosshair: c = 3
     case .resizeLeftRight: c = 4
     case .resizeUpDown: c = 5
+    case .hidden: c = 6
     }
     cwindow_set_cursor(w.Id, c)
+}
+
+/// Shows a cursor drawn by the program over this window: `width * height`
+/// pixels, four bytes each -- red, green, blue, alpha, premultiplied -- top
+/// row first, `scale` pixels per point (2 for pixels drawn for Retina),
+/// with the click point at pixel (hotX, hotY). It stays until the next
+/// `SetCursor` or `SetCursorImage`.
+public func (w: borrowing Window) SetCursorImage(_ pixels: borrowing [uint8], width: int32, height: int32,
+                                                  hotX: int32, hotY: int32, scale: float32 = 1) throws {
+    let want = int(width) * int(height) * 4
+    if width <= 0 || height <= 0 || pixels.count != want {
+        throw WindowError.invalidArgument(
+            "\(pixels.count) bytes for a \(width)x\(height) cursor, which wants \(want)")
+    }
+    let rc = pixels.withUnsafeBufferPointer { bp in
+        cwindow_set_cursor_image(w.Id, bp.baseAddress, width, height, hotX, hotY, float64(scale))
+    }
+    if rc < 0 {
+        throw errorFor(rc, "setting a \(width)x\(height) cursor")
+    }
 }
 
 /// Closes the window. It is consumed: nothing can be asked of it afterwards,
