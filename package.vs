@@ -13,6 +13,7 @@ let package = Package(
         .library(name: "ui/webview", targets: ["webview"]),
         .executable(name: "hello", targets: ["hello"]),
         .executable(name: "paint", targets: ["paint"]),
+        .executable(name: "blank", targets: ["blank"]),
         .executable(name: "lifecycle", targets: ["lifecycle"]),
         .executable(name: "check-webview", targets: ["check-webview"]),
         .executable(name: "check-draw", targets: ["check-draw"]),
@@ -22,14 +23,17 @@ let package = Package(
         .executable(name: "bench", targets: ["bench"]),
     ],
     targets: [
-        // The platform's window system, as a C ABI.
+        // The platform's window system, as a C ABI: Cocoa in
+        // cwindow_darwin.m, NativeActivity in cwindow_android.c.
         .target(
             name: "cwindow",
             path: "window/cwindow",
             publicHeadersPath: "include",
             linkerSettings: [
-                .linkedFramework("Cocoa"),
-                .linkedFramework("QuartzCore"),
+                .linkedFramework("Cocoa", .when(platforms: [.macOS])),
+                .linkedFramework("QuartzCore", .when(platforms: [.macOS])),
+                .linkedLibrary("android", .when(platforms: [.android])),
+                .linkedLibrary("log", .when(platforms: [.android])),
             ]
         ),
         // The package: Vertex types over cwindow.
@@ -72,6 +76,12 @@ let package = Package(
             name: "hello",
             dependencies: ["window"],
             path: "examples/hello"
+        ),
+        // One colour, redrawn on every frame: a window, and nothing else.
+        .executableTarget(
+            name: "blank",
+            dependencies: ["window"],
+            path: "examples/blank"
         ),
         // Pixels, pointer input and frames.
         .executableTarget(

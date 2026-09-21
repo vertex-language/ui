@@ -41,7 +41,10 @@ public enum SurfaceKind {
 /// swapchain to them and for nothing else. Application code draws with
 /// `Present`, or with such a renderer, and never needs this.
 public func (s: borrowing Surface) RawParts() -> (kind: SurfaceKind, window: uint64, view: uint64) {
-    return (kind: .appKit, window: cwindow_native_window(s.window), view: cwindow_native_view(s.window))
+    // Converted, since uint64_t imports as UInt64 on Darwin and, being
+    // unsigned long there, as UInt on Linux and Android.
+    return (kind: .appKit, window: uint64(cwindow_native_window(s.window)),
+            view: uint64(cwindow_native_view(s.window)))
 }
 
 /// Copies a rectangular block of premultiplied RGBA8 pixels from `source` into `destination`.

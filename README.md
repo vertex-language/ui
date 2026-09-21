@@ -14,7 +14,7 @@ into a window.
 
 | Package | What it is | Native code |
 | :--- | :--- | :--- |
-| **`ui/window`** | A native window: creation, an async event queue, a frame clock, a pixel surface, cursors, the clipboard. | `cwindow` (Cocoa) |
+| **`ui/window`** | A native window: creation, an async event queue, a frame clock, a pixel surface, cursors, the clipboard. | `cwindow`: Cocoa on macOS, NativeActivity on Android |
 | **`ui/draw`** | A software rasterizer over premultiplied RGBA pixels: fills, anti-aliased rounded corners, borders, gradients, 8-bit masks, images resampled up or down. (PNG encoding and decoding live in [`image/png`](https://github.com/vertex-language/image).) | none |
 | **`ui/font`** | Faces by family, size, weight and slant; text shaped into glyphs with a per-word cache; glyph masks at any scale. | `cfont` (CoreText) |
 | **`ui/webview`** | HTML and CSS: the cascade, layout, painting, and input, over the parsers in [`text`](https://github.com/vertex-language/text). | none |
