@@ -6,6 +6,8 @@
 package main
 
 import "ui/window"
+import "os/process"
+import "time"
 
 var failures = 0
 
@@ -117,50 +119,48 @@ func concurrency(_ w: borrowing window.Window) async {
     check(await ticker.value == 5, "a task runs to completion beside a window wait")
 }
 
-@_silgen_name("popen")
-func c_popen(_ command: UnsafePointer<CChar>!, _ mode: UnsafePointer<CChar>!) -> OpaquePointer?
-
-@_silgen_name("pclose")
-func c_pclose(_ stream: OpaquePointer?) -> int32
-
-@_silgen_name("fileno")
-func c_fileno(_ stream: OpaquePointer?) -> int32
-
-@_silgen_name("clock_gettime_nsec_np")
-func c_clock_nsec(_ clock: uint32) -> uint64
-
-// A monotonic clock, in nanoseconds: CLOCK_UPTIME_RAW.
-func now() -> uint64 {
-    return c_clock_nsec(8)
-}
-
-@_silgen_name("vertex_task_wait_fd")
-func waitFd(_ fd: int32, _ events: int32, _ timeoutNanos: int64) async -> int32
-
 // A descriptor a task waits on becomes ready while the thread is asleep in
 // the window system's wait, and the thread has to come out of that wait for
 // it, not only for a window event. The write comes from another process, a
 // fifth of a second later, so nothing on this thread is due in between: no
 // task can run, no frame is asked for, and the executor's own poll has seen
-// the pipe empty before the thread goes to sleep. The wait has a deadline of
-// five seconds so that a thread that never wakes fails the check rather than
-// hanging it.
+// the pipe empty before the thread goes to sleep. A watchdog kills the child
+// at five seconds, so that a thread that never wakes fails the check rather
+// than hanging it.
 //
 // Input ends the window system's wait too -- a mouse moving anywhere on the
 // screen is an event for the active app -- so on a machine someone is using,
 // the check can pass without the wake, a little late. With no input, a
-// missing wake leaves the task waiting until the deadline, and it fails.
+// missing wake leaves the task waiting until the watchdog, and it fails.
 func descriptors() async {
-    let started = now()
-    guard let child = c_popen("sleep 0.2; printf x", "r") else {
+    let started = time.Instant.Now()
+    var cmd = process.Command("/bin/sh", ["-c", "sleep 0.2; printf x"])
+    cmd.Stdin = .null
+    cmd.Stdout = .pipe
+    let child: process.Child
+    do {
+        child = try cmd.Spawn()
+    } catch {
         check(false, "a child process writes to a pipe")
         return
     }
-    let ready = await waitFd(c_fileno(child), 1, 5_000_000_000)
-    let waited = (now() - started) / 1_000_000
-    _ = c_pclose(child)
+    let watchdog = Task { () async -> int in
+        try? await Task.sleep(nanoseconds: 5_000_000_000)
+        child.Kill()
+        return 0
+    }
+    var buf = [uint8](repeating: 0, count: 1)
+    var n = 0
+    do {
+        n = try await child.Stdout!.Read(into: &buf)
+    } catch {
+        n = 0
+    }
+    let waited = started.Elapsed().AsMilliseconds()
+    _ = try? await child.Wait()
+    _ = watchdog
     print("      woke \(waited) ms after the child started")
-    check(ready > 0 && waited < 2_000,
+    check(n > 0 && waited < 2_000,
           "a task waiting on a pipe wakes while the thread sleeps in the window system")
 }
 
