@@ -90,6 +90,10 @@ public final class WebView {
     var values: [int64: string] = [:]
     var caretVisible = true
     var caretPhase: float64 = 0
+    /// The other end of the focused field's selection: the caret when
+    /// nothing is selected in it.
+    var fieldAnchor: int = 0
+    var fieldSelecting = false
     var selectionAnchor: TextPosition? = nil
     var selectionFocus: TextPosition? = nil
     var selecting = false
@@ -426,6 +430,10 @@ public final class WebView {
                 b.focused = focused?.Id ?? 0
                 b.caret = caret
                 b.caretVisible = caretVisible
+                if let r = fieldRange() {
+                    b.fieldSelectionStart = r.start
+                    b.fieldSelectionEnd = r.end
+                }
                 b.images = images
                 if let range = selectionRange() {
                     b.selectionStart = range.start
@@ -535,11 +543,15 @@ public final class WebView {
     }
 
     /// Whether any text is selected.
-    public var HasSelection: bool { return selectionRange() != nil }
+    public var HasSelection: bool { return selectionRange() != nil || fieldRange() != nil }
 
     /// The selected text, with a line break where the selection spans lines.
     public func SelectedText() -> string {
         update()
+        if let f = focused, let r = fieldRange() {
+            let bytes = [uint8](valueOf(f).utf8)
+            return draw.stringOf(bytes, min(r.start, bytes.count), min(r.end, bytes.count))
+        }
         guard let range = selectionRange(), let r = root else { return "" }
         var out = ""
         var pastLine = false
@@ -630,6 +642,7 @@ public final class WebView {
         if let n = node {
             let value = valueOf(n)
             caret = value.utf8.count
+            fieldAnchor = caret
         }
         showCaret()
         stateChanged()
@@ -686,6 +699,21 @@ public final class WebView {
         values[node.Id] = value
         showCaret()
         needsStyle = true
+    }
+
+    /// The selected bytes of the focused text control, if any.
+    func fieldRange() -> (start: int, end: int)? {
+        guard let f = focused, isTextControl(f), fieldAnchor != caret else { return nil }
+        return fieldAnchor < caret ? (start: fieldAnchor, end: caret) : (start: caret, end: fieldAnchor)
+    }
+
+    /// Puts the caret somewhere, extending the field's selection from
+    /// its anchor or collapsing it there.
+    func moveCaret(_ to: int, extend: bool) {
+        caret = to
+        if !extend { fieldAnchor = to }
+        showCaret()
+        needsPaint = true
     }
 
     /// Shows the caret now, as typing or moving does, restarting its blink.

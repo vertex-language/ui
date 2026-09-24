@@ -142,6 +142,9 @@ final class DisplayListBuilder {
     var focused: int64 = 0
     var caret: int = -1
     var caretVisible: bool = true
+    /// The focused field's selected bytes, or -1 for none.
+    var fieldSelectionStart: int = -1
+    var fieldSelectionEnd: int = -1
     var opacity: float32 = 1
     /// The page's images by URL, for backgrounds.
     var images: [string: draw.Image] = [:]
@@ -491,6 +494,8 @@ final class DisplayListBuilder {
             if box.Replaced == .textArea { textY = inner.Y + face.Ascent + (face.LineHeight - face.Ascent - face.Descent) / 2 }
             let value = box.Text
             var caretX = textX
+            let selected = isFocused && fieldSelectionStart >= 0 && fieldSelectionEnd > fieldSelectionStart
+            let highlight = draw.Color(179, 212, 252)
             if !value.isEmpty {
                 if box.Replaced == .textArea {
                     var lineY = textY
@@ -502,6 +507,18 @@ final class DisplayListBuilder {
                         if i == bytes.count || bytes[i] == 10 {
                             let lineText = draw.stringOf(bytes, lineStart, i)
                             let run = face.Shape(lineText)
+                            if selected {
+                                // The part of this line inside the selection.
+                                let from = max(fieldSelectionStart, lineStart)
+                                let to = min(fieldSelectionEnd, i)
+                                if from <= to && (from < to || (fieldSelectionEnd > i && i < bytes.count)) {
+                                    let x0 = textX + face.Measure(draw.stringOf(bytes, lineStart, from))
+                                    var x1 = textX + face.Measure(draw.stringOf(bytes, lineStart, to))
+                                    // A selected line break shows as a sliver.
+                                    if fieldSelectionEnd > i && i < bytes.count { x1 += face.SpaceWidth }
+                                    items.append(.fill(draw.Rect(x0, lineY - face.Ascent, x1 - x0, face.Ascent + face.Descent), highlight, draw.Radii.zero))
+                                }
+                            }
                             if run.Count > 0 { items.append(.text(textX, lineY, run, color(s.Color), 0)) }
                             if isFocused && caret >= lineStart && caret <= i && !caretPlaced {
                                 caretX = textX + face.Measure(draw.stringOf(bytes, lineStart, caret))
@@ -517,6 +534,12 @@ final class DisplayListBuilder {
                     }
                 } else {
                     let run = face.Shape(value)
+                    if selected {
+                        let bytes = [uint8](value.utf8)
+                        let x0 = textX + face.Measure(draw.stringOf(bytes, 0, min(fieldSelectionStart, bytes.count)))
+                        let x1 = textX + face.Measure(draw.stringOf(bytes, 0, min(fieldSelectionEnd, bytes.count)))
+                        items.append(.fill(draw.Rect(x0, textY - face.Ascent, x1 - x0, face.Ascent + face.Descent), highlight, draw.Radii.zero))
+                    }
                     items.append(.text(textX, textY, run, color(s.Color), 0))
                     if isFocused {
                         let bytes = [uint8](value.utf8)

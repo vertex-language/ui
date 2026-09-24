@@ -43,6 +43,14 @@ extension WebView {
 
     func pointerMoved(_ p: window.Point) -> EventResult {
         pointer = p
+        if fieldSelecting, let f = focused {
+            // Dragging in a field extends its selection from the anchor.
+            update()
+            let anchor = fieldAnchor
+            placeCaret(f, at: p)
+            fieldAnchor = anchor
+            return .handled
+        }
         if selecting {
             // Dragging extends the selection to the text under the pointer.
             update()
@@ -171,14 +179,14 @@ extension WebView {
                 }
                 if !control.HasAttribute("disabled") {
                     Focus(control)
-                    placeCaret(control, at: p)
+                    clickInField(control, at: p, clicks: clicks)
                 }
                 return .handled
             }
             if tag == "textarea" {
                 if !control.HasAttribute("disabled") {
                     Focus(control)
-                    placeCaret(control, at: p)
+                    clickInField(control, at: p, clicks: clicks)
                 }
                 return .handled
             }
@@ -214,8 +222,9 @@ extension WebView {
         pressed = nil
         if selecting {
             selecting = false
-            if !HasSelection { ClearSelection() }
+            if selectionRange() == nil { ClearSelection() }
         }
+        fieldSelecting = false
         stateChanged()
         guard let hit = hitAt(p) else { return .ignored }
         // A click is a press and release on the same element.
@@ -409,7 +418,7 @@ extension WebView {
         let bytes = [uint8](text.utf8)
         // Control characters arrive as keys, not text.
         if bytes.count == 1 && bytes[0] < 32 && bytes[0] != 10 { return .ignored }
-        var value = valueOf(f)
+        var value = deleteFieldSelection(f)
         if f.TagName == "input", let max = f.GetAttribute("maxlength") {
             let mb = [uint8](max.utf8)
             let n = int(draw.parseNumber(mb, 0, mb.count))
@@ -417,55 +426,80 @@ extension WebView {
         }
         value = insertBytes(value, at: caret, bytes)
         caret += bytes.count
+        fieldAnchor = caret
         setValue(f, value)
         return .handled
+    }
+
+    /// Removes the field's selected text, if any, leaving the caret at
+    /// its start; the value that remains.
+    func deleteFieldSelection(_ f: html.Node) -> string {
+        let value = valueOf(f)
+        guard let r = fieldRange() else { return value }
+        let bytes = [uint8](value.utf8)
+        let start = min(r.start, bytes.count)
+        let end = min(r.end, bytes.count)
+        let rest = draw.stringOf(bytes, 0, start) + draw.stringOf(bytes, end, bytes.count)
+        caret = start
+        fieldAnchor = start
+        setValue(f, rest)
+        return rest
     }
 
     func editKey(_ f: html.Node, _ k: window.KeyEvent) -> EventResult {
         let value = valueOf(f)
         let bytes = [uint8](value.utf8)
         let editable = !f.HasAttribute("disabled") && !f.HasAttribute("readonly")
+        let shift = k.Modifiers.Shift
+        let hasSelection = fieldRange() != nil
         switch k.Code {
         case .backspace:
             if !editable { return .handled }
-            if caret > 0 {
+            if hasSelection {
+                _ = deleteFieldSelection(f)
+            } else if caret > 0 {
                 let start = k.Modifiers.Alt ? wordStart(bytes, before: caret) : previousChar(bytes, caret)
                 setValue(f, draw.stringOf(bytes, 0, start) + draw.stringOf(bytes, caret, bytes.count))
                 caret = start
+                fieldAnchor = start
             }
         case .delete:
             if !editable { return .handled }
-            if caret < bytes.count {
+            if hasSelection {
+                _ = deleteFieldSelection(f)
+            } else if caret < bytes.count {
                 let end = nextChar(bytes, caret)
                 setValue(f, draw.stringOf(bytes, 0, caret) + draw.stringOf(bytes, end, bytes.count))
             }
         case .arrowLeft:
-            caret = k.Modifiers.Alt ? wordStart(bytes, before: caret) : (k.Modifiers.Meta ? 0 : previousChar(bytes, caret))
-            showCaret()
-            needsPaint = true
+            if let r = fieldRange(), !shift && !k.Modifiers.Alt && !k.Modifiers.Meta {
+                moveCaret(r.start, extend: false)
+            } else {
+                moveCaret(k.Modifiers.Alt ? wordStart(bytes, before: caret) : (k.Modifiers.Meta ? 0 : previousChar(bytes, caret)), extend: shift)
+            }
         case .arrowRight:
-            caret = k.Modifiers.Alt ? wordEnd(bytes, after: caret) : (k.Modifiers.Meta ? bytes.count : nextChar(bytes, caret))
-            showCaret()
-            needsPaint = true
+            if let r = fieldRange(), !shift && !k.Modifiers.Alt && !k.Modifiers.Meta {
+                moveCaret(r.end, extend: false)
+            } else {
+                moveCaret(k.Modifiers.Alt ? wordEnd(bytes, after: caret) : (k.Modifiers.Meta ? bytes.count : nextChar(bytes, caret)), extend: shift)
+            }
         case .home:
-            caret = 0
-            needsPaint = true
+            moveCaret(0, extend: shift)
         case .end:
-            caret = bytes.count
-            needsPaint = true
+            moveCaret(bytes.count, extend: shift)
         case .arrowUp, .arrowDown:
             if f.TagName == "textarea" {
-                caret = lineMove(bytes, caret, up: k.Code == .arrowUp)
-                needsPaint = true
+                moveCaret(lineMove(bytes, caret, up: k.Code == .arrowUp), extend: shift)
             } else {
-                caret = k.Code == .arrowUp ? 0 : bytes.count
-                needsPaint = true
+                moveCaret(k.Code == .arrowUp ? 0 : bytes.count, extend: shift)
             }
         case .enter:
             if f.TagName == "textarea" {
                 if editable {
-                    setValue(f, insertBytes(value, at: caret, [10]))
+                    let rest = deleteFieldSelection(f)
+                    setValue(f, insertBytes(rest, at: caret, [10]))
                     caret += 1
+                    fieldAnchor = caret
                 }
             } else if let form = ancestor(f, "form") {
                 submit(form, submitter: nil)
@@ -473,11 +507,12 @@ extension WebView {
                 cb(f.GetAttribute("name") ?? (f.GetAttribute("id") ?? "input"), value)
             }
         case .tab:
-            moveFocus(backwards: k.Modifiers.Shift)
+            moveFocus(backwards: shift)
         case .escape:
             Focus(nil)
         case .a:
             if k.Modifiers.Meta || k.Modifiers.Control {
+                fieldAnchor = 0
                 caret = bytes.count
                 needsPaint = true
             } else {
@@ -485,10 +520,10 @@ extension WebView {
             }
         case .c, .x:
             if k.Modifiers.Meta || k.Modifiers.Control {
-                window.SetClipboardText(value)
+                guard let r = fieldRange() else { return .handled }
+                window.SetClipboardText(draw.stringOf(bytes, r.start, min(r.end, bytes.count)))
                 if k.Code == .x && editable {
-                    setValue(f, "")
-                    caret = 0
+                    _ = deleteFieldSelection(f)
                 }
             } else {
                 return .ignored
@@ -504,8 +539,10 @@ extension WebView {
                         while i < text.count && text[i] != 10 && text[i] != 13 { i += 1 }
                         while text.count > i { text.removeLast() }
                     }
-                    setValue(f, insertBytes(value, at: caret, text))
+                    let rest = deleteFieldSelection(f)
+                    setValue(f, insertBytes(rest, at: caret, text))
                     caret += text.count
+                    fieldAnchor = caret
                 }
             } else {
                 return .ignored
@@ -514,6 +551,33 @@ extension WebView {
             return .ignored
         }
         return .handled
+    }
+
+    /// A click in a text control: the caret goes there and a drag
+    /// selects from it; a double click takes the word, a triple all.
+    func clickInField(_ control: html.Node, at p: window.Point, clicks: int32) {
+        placeCaret(control, at: p)
+        let bytes = [uint8](valueOf(control).utf8)
+        if clicks >= 3 {
+            fieldAnchor = 0
+            caret = bytes.count
+        } else if clicks == 2 {
+            var start = caret
+            var end = caret
+            if start < bytes.count && isSpaceByte(bytes[start]) {
+                while start > 0 && isSpaceByte(bytes[start - 1]) { start -= 1 }
+                while end < bytes.count && isSpaceByte(bytes[end]) { end += 1 }
+            } else {
+                while start > 0 && !isSpaceByte(bytes[start - 1]) { start -= 1 }
+                while end < bytes.count && !isSpaceByte(bytes[end]) { end += 1 }
+            }
+            fieldAnchor = start
+            caret = end
+        } else {
+            fieldAnchor = caret
+            fieldSelecting = true
+        }
+        needsPaint = true
     }
 
     /// Moves the caret to where a click landed in a text control.
@@ -557,9 +621,7 @@ extension WebView {
             }
             i += 1
         }
-        caret = best
-        showCaret()
-        needsPaint = true
+        moveCaret(best, extend: false)
     }
 
     // MARK: - Focus
@@ -582,7 +644,9 @@ extension WebView {
         if next < 0 { next = order.count - 1 }
         Focus(order[next])
         if let f = focused {
+            // Tabbing into a field selects its text, as browsers do.
             caret = valueOf(f).utf8.count
+            fieldAnchor = isTextControl(f) ? 0 : caret
             ScrollIntoViewIfNeeded(f)
         }
     }
