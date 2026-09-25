@@ -1,12 +1,20 @@
 # ui
 
-[![package: stdlib](https://img.shields.io/badge/package-stdlib-f4f4f5?style=flat-square&labelColor=e4e4e7&color=18181b)](https://github.com/vertex-language)
-[![ui: window](https://img.shields.io/badge/ui-window-f4f4f5?style=flat-square&labelColor=e4e4e7&color=18181b)](https://github.com/vertex-language/ui)
+[![package: vs-package](https://img.shields.io/badge/package-vs--package-f4f4f5?style=flat-square&labelColor=e4e4e7&color=18181b)](https://github.com/vertex-language)
+[![ui: window | draw | font | webview](https://img.shields.io/badge/ui-window%20%7C%20draw%20%7C%20font%20%7C%20webview-f4f4f5?style=flat-square&labelColor=e4e4e7&color=18181b)](https://github.com/vertex-language/ui)
 [![runtime: async](https://img.shields.io/badge/runtime-async-f4f4f5?style=flat-square&labelColor=e4e4e7&color=18181b)](https://github.com/vertex-language)
 
-The user interface packages of the Vertex standard library: native windows, a
-software rasterizer, fonts, images, and an HTML and CSS engine that draws pages
-into a window.
+User interface packages: native windows, 2D rasterization, fonts, and an HTML/CSS layout and painting engine.
+
+---
+
+## Quick Start
+
+Run any entry point with:
+
+```bash
+vsc run main.vs
+```
 
 ---
 
@@ -15,13 +23,12 @@ into a window.
 | Package | What it is | Native code |
 | :--- | :--- | :--- |
 | **`ui/window`** | A native window: creation, an async event queue, a frame clock, a pixel surface, cursors, the clipboard. | `cwindow`: Cocoa on macOS, NativeActivity on Android |
-| **`ui/draw`** | A software rasterizer over premultiplied RGBA pixels: fills, anti-aliased rounded corners, borders, gradients, 8-bit masks, images resampled up or down. (PNG encoding and decoding live in [`image/png`](https://github.com/vertex-language/image).) | none |
+| **`ui/draw`** | A software rasterizer over premultiplied RGBA pixels: fills, anti-aliased rounded corners, borders, gradients, 8-bit masks, images resampled up or down. | none |
 | **`ui/font`** | Faces by family, size, weight and slant; text shaped into glyphs with a per-word cache; glyph masks at any scale. | `cfont` (CoreText) |
-| **`ui/webview`** | HTML and CSS: the cascade, layout, painting, and input, over the parsers in [`text`](https://github.com/vertex-language/text). | none |
+| **`ui/webview`** | HTML and CSS: the cascade, layout, painting, and input. | none |
 
 Everything a page needs from the platform goes through `window`, `font` and
-`image`; `draw` and `webview` are Vertex alone, and draw into a plain `[uint8]`
-that `window.Surface.Present` shows.
+`image`; `draw` and `webview` draw into a plain `[uint8]` that `window.Surface.Present` shows.
 
 ---
 
