@@ -1,4 +1,4 @@
-// cwindow on macOS: AppKit.
+// ui.window on macOS: AppKit. See window.cpp.
 //
 // Everything runs on the main thread, which is the thread the Vertex
 // executor runs on. AppKit delivers events only from inside its own wait,
@@ -6,6 +6,7 @@
 // can run, the thread sleeps in -[NSApplication nextEventMatchingMask:...],
 // as a native app's does, and comes back out for a window event, a
 // descriptor some task waits on becoming ready, or the next deadline.
+module;
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/QuartzCore.h>
 #import <CoreText/CoreText.h>
@@ -13,10 +14,12 @@
 #include <unistd.h>
 #include <string.h>
 
-#include "cwindow.h"
-
-extern void    vertex_task_set_idle_wait(void (*wait)(int64_t timeoutNanos));
-extern int32_t vertex_task_io_descriptor(void);
+// The runtime's own C entries.
+extern "C" {
+void    vertex_task_set_idle_wait(void (*wait)(int64_t timeoutNanos));
+int32_t vertex_task_io_descriptor(void);
+}
+module ui.window;
 
 // ---- events ----
 
@@ -162,11 +165,11 @@ static NSString* namedKey(int32_t code) {
 
 static int32_t modifiersFor(NSEventModifierFlags f) {
     int32_t m = 0;
-    if (f & NSEventModifierFlagShift) m |= CWINDOW_MOD_SHIFT;
-    if (f & NSEventModifierFlagControl) m |= CWINDOW_MOD_CONTROL;
-    if (f & NSEventModifierFlagOption) m |= CWINDOW_MOD_ALT;
-    if (f & NSEventModifierFlagCommand) m |= CWINDOW_MOD_META;
-    if (f & NSEventModifierFlagCapsLock) m |= CWINDOW_MOD_CAPS;
+    if (f & NSEventModifierFlagShift) m |= Mod::shift;
+    if (f & NSEventModifierFlagControl) m |= Mod::control;
+    if (f & NSEventModifierFlagOption) m |= Mod::alt;
+    if (f & NSEventModifierFlagCommand) m |= Mod::meta;
+    if (f & NSEventModifierFlagCapsLock) m |= Mod::caps;
     return m;
 }
 
@@ -217,7 +220,7 @@ static void push(CWWindow* w, Event e) {
     }
     if (q->count == q->cap) {
         int cap = q->cap == 0 ? 32 : q->cap * 2;
-        Event* grown = calloc((size_t)cap, sizeof(Event));
+        Event* grown = (Event*)calloc((size_t)cap, sizeof(Event));
         for (int i = 0; i < q->count; i++)
             grown[i] = q->items[(q->head + i) % q->cap];
         free(q->items);
@@ -227,7 +230,7 @@ static void push(CWWindow* w, Event e) {
     }
     q->items[(q->head + q->count) % q->cap] = e;
     q->count++;
-    // One byte marks the queue non-empty; cwindow_next drains it when the
+    // One byte marks the queue non-empty; winNext drains it when the
     // queue empties again.
     if (!w.signalled) {
         char b = 1;
@@ -284,7 +287,7 @@ static void pushKind(CWWindow* w, int32_t kind, int32_t code, double x, double y
     e.flags = [event subtype] == NSEventSubtypeTabletPoint ? 1 : 0;
     e.pressure = e.flags == 1 ? [event pressure] : 0;
     // The click count rides above the pointer kind: 2 for a double click.
-    if (kind == CWINDOW_EVENT_POINTER_DOWN || kind == CWINDOW_EVENT_POINTER_UP)
+    if (kind == EventKind::pointerDown || kind == EventKind::pointerUp)
         e.flags |= ((int32_t)[event clickCount]) << 8;
     push(self.owner, e);
 }
@@ -292,7 +295,7 @@ static void pushKind(CWWindow* w, int32_t kind, int32_t code, double x, double y
 - (void)mouseMoved:(NSEvent*)e {
     if (self.owner.customCursor != nil)
         [self.owner.customCursor set];
-    [self pointer:e kind:CWINDOW_EVENT_POINTER_MOVED button:0];
+    [self pointer:e kind:EventKind::pointerMoved button:0];
 }
 - (void)mouseEntered:(NSEvent*)e {
     if (self.owner.customCursor != nil)
@@ -304,24 +307,24 @@ static void pushKind(CWWindow* w, int32_t kind, int32_t code, double x, double y
     else
         [super cursorUpdate:e];
 }
-- (void)mouseDragged:(NSEvent*)e { [self pointer:e kind:CWINDOW_EVENT_POINTER_MOVED button:0]; }
-- (void)rightMouseDragged:(NSEvent*)e { [self pointer:e kind:CWINDOW_EVENT_POINTER_MOVED button:0]; }
-- (void)otherMouseDragged:(NSEvent*)e { [self pointer:e kind:CWINDOW_EVENT_POINTER_MOVED button:0]; }
-- (void)mouseDown:(NSEvent*)e { [self pointer:e kind:CWINDOW_EVENT_POINTER_DOWN button:0]; }
-- (void)mouseUp:(NSEvent*)e { [self pointer:e kind:CWINDOW_EVENT_POINTER_UP button:0]; }
-- (void)rightMouseDown:(NSEvent*)e { [self pointer:e kind:CWINDOW_EVENT_POINTER_DOWN button:1]; }
-- (void)rightMouseUp:(NSEvent*)e { [self pointer:e kind:CWINDOW_EVENT_POINTER_UP button:1]; }
+- (void)mouseDragged:(NSEvent*)e { [self pointer:e kind:EventKind::pointerMoved button:0]; }
+- (void)rightMouseDragged:(NSEvent*)e { [self pointer:e kind:EventKind::pointerMoved button:0]; }
+- (void)otherMouseDragged:(NSEvent*)e { [self pointer:e kind:EventKind::pointerMoved button:0]; }
+- (void)mouseDown:(NSEvent*)e { [self pointer:e kind:EventKind::pointerDown button:0]; }
+- (void)mouseUp:(NSEvent*)e { [self pointer:e kind:EventKind::pointerUp button:0]; }
+- (void)rightMouseDown:(NSEvent*)e { [self pointer:e kind:EventKind::pointerDown button:1]; }
+- (void)rightMouseUp:(NSEvent*)e { [self pointer:e kind:EventKind::pointerUp button:1]; }
 - (void)otherMouseDown:(NSEvent*)e {
-    [self pointer:e kind:CWINDOW_EVENT_POINTER_DOWN button:(int32_t)[e buttonNumber]];
+    [self pointer:e kind:EventKind::pointerDown button:(int32_t)[e buttonNumber]];
 }
 - (void)otherMouseUp:(NSEvent*)e {
-    [self pointer:e kind:CWINDOW_EVENT_POINTER_UP button:(int32_t)[e buttonNumber]];
+    [self pointer:e kind:EventKind::pointerUp button:(int32_t)[e buttonNumber]];
 }
-- (void)mouseExited:(NSEvent*)e { pushKind(self.owner, CWINDOW_EVENT_POINTER_LEFT, 0, 0, 0); }
+- (void)mouseExited:(NSEvent*)e { pushKind(self.owner, EventKind::pointerLeft, 0, 0, 0); }
 
 - (void)scrollWheel:(NSEvent*)event {
     Event e = {0};
-    e.kind = CWINDOW_EVENT_SCROLLED;
+    e.kind = EventKind::scrolled;
     e.code = [event hasPreciseScrollingDeltas] ? 1 : 0;
     e.x = [event scrollingDeltaX];
     e.y = [event scrollingDeltaY];
@@ -343,30 +346,30 @@ static void pushKind(CWWindow* w, int32_t kind, int32_t code, double x, double y
 }
 
 - (void)keyDown:(NSEvent*)event {
-    [self key:event kind:CWINDOW_EVENT_KEY_DOWN];
+    [self key:event kind:EventKind::keyDown];
     // And through the input system, which is what turns key presses into
     // text: dead keys, input methods, and everything else a layout does.
     [self interpretKeyEvents:@[ event ]];
 }
 
-- (void)keyUp:(NSEvent*)event { [self key:event kind:CWINDOW_EVENT_KEY_UP]; }
+- (void)keyUp:(NSEvent*)event { [self key:event kind:EventKind::keyUp]; }
 
 - (void)flagsChanged:(NSEvent*)event {
     Event e = {0};
-    e.kind = CWINDOW_EVENT_MODIFIERS_CHANGED;
+    e.kind = EventKind::modifiersChanged;
     e.modifiers = modifiersFor([event modifierFlags]);
     push(self.owner, e);
 }
 
 - (void)viewDidChangeEffectiveAppearance {
     [super viewDidChangeEffectiveAppearance];
-    pushKind(self.owner, CWINDOW_EVENT_THEME_CHANGED, cwindow_theme(self.owner.ident), 0, 0);
+    pushKind(self.owner, EventKind::themeChanged, winTheme(self.owner.ident), 0, 0);
 }
 
 - (void)onFrame:(id)link {
     CADisplayLink* l = (CADisplayLink*)link;
     Event e = {0};
-    e.kind = CWINDOW_EVENT_FRAME;
+    e.kind = EventKind::frame;
     e.time = [l targetTimestamp];
     e.interval = [l targetTimestamp] - [l timestamp];
     push(self.owner, e);
@@ -380,12 +383,12 @@ static void pushKind(CWWindow* w, int32_t kind, int32_t code, double x, double y
     if (self.marked != nil) {
         self.marked = nil;
         Event end = {0};
-        end.kind = CWINDOW_EVENT_COMPOSITION;
+        end.kind = EventKind::composition;
         end.text = copyText(@"");
         push(self.owner, end);
     }
     Event e = {0};
-    e.kind = CWINDOW_EVENT_TEXT;
+    e.kind = EventKind::text;
     e.text = copyText(s);
     push(self.owner, e);
 }
@@ -394,7 +397,7 @@ static void pushKind(CWWindow* w, int32_t kind, int32_t code, double x, double y
     NSString* s = [string isKindOfClass:[NSAttributedString class]] ? [string string] : string;
     self.marked = [s length] > 0 ? s : nil;
     Event e = {0};
-    e.kind = CWINDOW_EVENT_COMPOSITION;
+    e.kind = EventKind::composition;
     e.text = copyText(s);
     push(self.owner, e);
 }
@@ -404,7 +407,7 @@ static void pushKind(CWWindow* w, int32_t kind, int32_t code, double x, double y
         return;
     self.marked = nil;
     Event e = {0};
-    e.kind = CWINDOW_EVENT_COMPOSITION;
+    e.kind = EventKind::composition;
     e.text = copyText(@"");
     push(self.owner, e);
 }
@@ -436,32 +439,32 @@ static void pushKind(CWWindow* w, int32_t kind, int32_t code, double x, double y
 
 - (BOOL)windowShouldClose:(NSWindow*)sender {
     // A request: the program decides, by calling Close or not.
-    pushKind(self, CWINDOW_EVENT_CLOSE_REQUESTED, 0, 0, 0);
+    pushKind(self, EventKind::closeRequested, 0, 0, 0);
     return NO;
 }
 
 - (void)windowDidResize:(NSNotification*)n {
     NSSize s = [self.view bounds].size;
-    pushKind(self, CWINDOW_EVENT_RESIZED, 0, s.width, s.height);
+    pushKind(self, EventKind::resized, 0, s.width, s.height);
 }
 
 - (void)windowDidMove:(NSNotification*)n {
     NSRect f = [self.window frame];
     NSRect screen = [[self.window screen] frame];
     // Top-left, in points, measured down from the top of the screen.
-    pushKind(self, CWINDOW_EVENT_MOVED, 0, f.origin.x, NSMaxY(screen) - NSMaxY(f));
+    pushKind(self, EventKind::moved, 0, f.origin.x, NSMaxY(screen) - NSMaxY(f));
 }
 
 - (void)windowDidChangeBackingProperties:(NSNotification*)n {
-    pushKind(self, CWINDOW_EVENT_SCALE_CHANGED, 0, [self.window backingScaleFactor], 0);
+    pushKind(self, EventKind::scaleChanged, 0, [self.window backingScaleFactor], 0);
 }
 
 - (void)windowDidBecomeKey:(NSNotification*)n {
-    pushKind(self, CWINDOW_EVENT_FOCUS_CHANGED, 1, 0, 0);
+    pushKind(self, EventKind::focusChanged, 1, 0, 0);
 }
 
 - (void)windowDidResignKey:(NSNotification*)n {
-    pushKind(self, CWINDOW_EVENT_FOCUS_CHANGED, 0, 0, 0);
+    pushKind(self, EventKind::focusChanged, 0, 0, 0);
 }
 
 @end
@@ -475,7 +478,7 @@ static void pushKind(CWWindow* w, int32_t kind, int32_t code, double x, double y
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication*)sender {
     // Quit is a close request to every window, which the program answers.
     for (NSNumber* key in [windows allKeys])
-        pushKind(windows[key], CWINDOW_EVENT_CLOSE_REQUESTED, 0, 0, 0);
+        pushKind(windows[key], EventKind::closeRequested, 0, 0, 0);
     return NSTerminateCancel;
 }
 @end
@@ -568,24 +571,24 @@ static BOOL started(void) {
 
 // ---- the C ABI ----
 
-int32_t cwindow_create(const char* title, double width, double height, int32_t flags) {
+int32_t winCreate(const char* title, double width, double height, int32_t flags) noexcept {
     @autoreleasepool {
         if (!started())
-            return CWINDOW_ERR_NO_DISPLAY;
+            return Err::noDisplay;
         if (width <= 0 || height <= 0)
-            return CWINDOW_ERR_INVALID;
+            return Err::invalid;
 
         int fds[2];
         if (pipe(fds) != 0)
-            return CWINDOW_ERR_SYSTEM;
+            return Err::system;
         fcntl(fds[0], F_SETFL, O_NONBLOCK);
         fcntl(fds[1], F_SETFL, O_NONBLOCK);
 
         NSWindowStyleMask style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                                   NSWindowStyleMaskMiniaturizable;
-        if (flags & CWINDOW_RESIZABLE)
+        if (flags & CreateFlag::resizable)
             style |= NSWindowStyleMaskResizable;
-        if (!(flags & CWINDOW_DECORATED))
+        if (!(flags & CreateFlag::decorated))
             style = NSWindowStyleMaskBorderless | (style & NSWindowStyleMaskResizable);
 
         NSWindow* nsw = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, width, height)
@@ -612,17 +615,17 @@ int32_t cwindow_create(const char* title, double width, double height, int32_t f
         [nsw setDelegate:w];
         [nsw makeFirstResponder:view];
 
-        Queue* q = calloc(1, sizeof(Queue));
+        Queue* q = (Queue*)calloc(1, sizeof(Queue));
         queues[@(w.ident)] = [NSValue valueWithPointer:q];
         windows[@(w.ident)] = w;
 
-        if (flags & CWINDOW_VISIBLE)
+        if (flags & CreateFlag::visible)
             [nsw makeKeyAndOrderFront:nil];
         return w.ident;
     }
 }
 
-void cwindow_close(int32_t window) {
+void winClose(int32_t window) noexcept {
     @autoreleasepool {
         CWWindow* w = windowOf(window);
         if (w == nil)
@@ -646,20 +649,20 @@ void cwindow_close(int32_t window) {
     }
 }
 
-int32_t cwindow_descriptor(int32_t window) {
+int32_t winDescriptor(int32_t window) noexcept {
     CWWindow* w = windowOf(window);
-    return w != nil ? w.readFd : CWINDOW_ERR_INVALID;
+    return w != nil ? w.readFd : Err::invalid;
 }
 
-int32_t cwindow_next(int32_t window) {
+int32_t winNext(int32_t window) noexcept {
     CWWindow* w = windowOf(window);
     Queue* q = queueOf(window);
     if (w == nil || q == NULL)
-        return CWINDOW_ERR_INVALID;
+        return Err::invalid;
     eventFree(&q->current);
     if (q->count == 0) {
         memset(&q->current, 0, sizeof(Event));
-        return CWINDOW_EVENT_NONE;
+        return EventKind::none;
     }
     q->current = q->items[q->head];
     q->head = (q->head + 1) % q->cap;
@@ -678,16 +681,16 @@ static Event* current(int32_t window) {
     return q != NULL ? &q->current : NULL;
 }
 
-int32_t cwindow_event_code(int32_t window) { Event* e = current(window); return e ? e->code : 0; }
-int32_t cwindow_event_modifiers(int32_t window) { Event* e = current(window); return e ? e->modifiers : 0; }
-int32_t cwindow_event_flags(int32_t window) { Event* e = current(window); return e ? e->flags : 0; }
-double cwindow_event_x(int32_t window) { Event* e = current(window); return e ? e->x : 0; }
-double cwindow_event_y(int32_t window) { Event* e = current(window); return e ? e->y : 0; }
-double cwindow_event_pressure(int32_t window) { Event* e = current(window); return e ? e->pressure : 0; }
-double cwindow_event_time(int32_t window) { Event* e = current(window); return e ? e->time : 0; }
-double cwindow_event_interval(int32_t window) { Event* e = current(window); return e ? e->interval : 0; }
+int32_t winEventCode(int32_t window) { Event* e = current(window); return e ? e->code : 0; }
+int32_t winEventModifiers(int32_t window) { Event* e = current(window); return e ? e->modifiers : 0; }
+int32_t winEventFlags(int32_t window) { Event* e = current(window); return e ? e->flags : 0; }
+double winEventX(int32_t window) { Event* e = current(window); return e ? e->x : 0; }
+double winEventY(int32_t window) { Event* e = current(window); return e ? e->y : 0; }
+double winEventPressure(int32_t window) { Event* e = current(window); return e ? e->pressure : 0; }
+double winEventTime(int32_t window) { Event* e = current(window); return e ? e->time : 0; }
+double winEventInterval(int32_t window) { Event* e = current(window); return e ? e->interval : 0; }
 
-int32_t cwindow_event_text(int32_t window, char* buf, int32_t cap) {
+int32_t winEventText(int32_t window, char* buf, int32_t cap) noexcept {
     Event* e = current(window);
     const char* text = (e != NULL && e->text != NULL) ? e->text : "";
     int32_t n = (int32_t)strlen(text);
@@ -699,21 +702,21 @@ int32_t cwindow_event_text(int32_t window, char* buf, int32_t cap) {
     return n;
 }
 
-double cwindow_width(int32_t window) { CWWindow* w = windowOf(window); return w ? [w.view bounds].size.width : 0; }
-double cwindow_height(int32_t window) { CWWindow* w = windowOf(window); return w ? [w.view bounds].size.height : 0; }
-double cwindow_scale(int32_t window) { CWWindow* w = windowOf(window); return w ? [w.window backingScaleFactor] : 1; }
+double winWidth(int32_t window) { CWWindow* w = windowOf(window); return w ? [w.view bounds].size.width : 0; }
+double winHeight(int32_t window) { CWWindow* w = windowOf(window); return w ? [w.view bounds].size.height : 0; }
+double winScale(int32_t window) { CWWindow* w = windowOf(window); return w ? [w.window backingScaleFactor] : 1; }
 
-int32_t cwindow_pixel_width(int32_t window) {
+int32_t winPixelWidth(int32_t window) noexcept {
     CWWindow* w = windowOf(window);
     return w ? (int32_t)[w.view convertRectToBacking:[w.view bounds]].size.width : 0;
 }
 
-int32_t cwindow_pixel_height(int32_t window) {
+int32_t winPixelHeight(int32_t window) noexcept {
     CWWindow* w = windowOf(window);
     return w ? (int32_t)[w.view convertRectToBacking:[w.view bounds]].size.height : 0;
 }
 
-int32_t cwindow_theme(int32_t window) {
+int32_t winTheme(int32_t window) noexcept {
     CWWindow* w = windowOf(window);
     if (w == nil)
         return 0;
@@ -722,30 +725,30 @@ int32_t cwindow_theme(int32_t window) {
     return [best isEqualToString:NSAppearanceNameDarkAqua] ? 1 : 0;
 }
 
-int32_t cwindow_focused(int32_t window) {
+int32_t winFocused(int32_t window) noexcept {
     CWWindow* w = windowOf(window);
     return (w != nil && [w.window isKeyWindow]) ? 1 : 0;
 }
 
-void cwindow_set_title(int32_t window, const char* title) {
+void winSetTitle(int32_t window, const char* title) noexcept {
     CWWindow* w = windowOf(window);
     if (w != nil)
         [w.window setTitle:[NSString stringWithUTF8String:title != NULL ? title : ""]];
 }
 
-void cwindow_set_size(int32_t window, double width, double height) {
+void winSetSize(int32_t window, double width, double height) noexcept {
     CWWindow* w = windowOf(window);
     if (w != nil && width > 0 && height > 0)
         [w.window setContentSize:NSMakeSize(width, height)];
 }
 
-void cwindow_set_min_size(int32_t window, double width, double height) {
+void winSetMinSize(int32_t window, double width, double height) noexcept {
     CWWindow* w = windowOf(window);
     if (w != nil)
         [w.window setContentMinSize:NSMakeSize(width, height)];
 }
 
-void cwindow_set_visible(int32_t window, int32_t visible) {
+void winSetVisible(int32_t window, int32_t visible) noexcept {
     CWWindow* w = windowOf(window);
     if (w == nil)
         return;
@@ -755,7 +758,7 @@ void cwindow_set_visible(int32_t window, int32_t visible) {
         [w.window orderOut:nil];
 }
 
-void cwindow_set_fullscreen(int32_t window, int32_t fullscreen) {
+void winSetFullscreen(int32_t window, int32_t fullscreen) noexcept {
     CWWindow* w = windowOf(window);
     if (w == nil)
         return;
@@ -764,7 +767,7 @@ void cwindow_set_fullscreen(int32_t window, int32_t fullscreen) {
         [w.window toggleFullScreen:nil];
 }
 
-void cwindow_set_cursor(int32_t window, int32_t cursor) {
+void winSetCursor(int32_t window, int32_t cursor) noexcept {
     CWWindow* w = windowOf(window);
     if (w == nil)
         return;
@@ -773,7 +776,7 @@ void cwindow_set_cursor(int32_t window, int32_t cursor) {
         // Hidden: a transparent cursor, so it stays per-window rather
         // than hiding the pointer everywhere as [NSCursor hide] would.
         uint8_t clear[4] = {0, 0, 0, 0};
-        cwindow_set_cursor_image(window, clear, 1, 1, 0, 0, 1);
+        winSetCursorImage(window, clear, 1, 1, 0, 0, 1);
         return;
     }
     switch (cursor) {
@@ -788,12 +791,12 @@ void cwindow_set_cursor(int32_t window, int32_t cursor) {
 
 static void freePixels(void* info, const void* data, size_t size);
 
-int32_t cwindow_set_cursor_image(int32_t window, const uint8_t* rgba, int32_t width, int32_t height,
-                                 int32_t hotX, int32_t hotY, double scale) {
+int32_t winSetCursorImage(int32_t window, const uint8_t* rgba, int32_t width, int32_t height,
+                                 int32_t hotX, int32_t hotY, double scale) noexcept {
     @autoreleasepool {
         CWWindow* w = windowOf(window);
         if (w == nil || rgba == NULL || width <= 0 || height <= 0 || width > 1024 || height > 1024)
-            return CWINDOW_ERR_INVALID;
+            return Err::invalid;
         // Cursors are kept by their pixels, hot spot and scale: a remote
         // desktop switches between a handful of shapes all the time, and
         // an NSCursor released while AppKit still draws it takes the
@@ -810,13 +813,13 @@ int32_t cwindow_set_cursor_image(int32_t window, const uint8_t* rgba, int32_t wi
         if (known != nil) {
             w.customCursor = known;
             [known set];
-            return CWINDOW_OK;
+            return Err::ok;
         }
-        // Built like cwindow_present's frames: a CGImage over a copy of
+        // Built like winPresent's frames: a CGImage over a copy of
         // the pixels, premultiplied RGBA in sRGB.
-        uint8_t* copy = malloc(size);
+        uint8_t* copy = (uint8_t*)malloc(size);
         if (copy == NULL)
-            return CWINDOW_ERR_SYSTEM;
+            return Err::system;
         memcpy(copy, rgba, size);
         CGDataProviderRef provider = CGDataProviderCreateWithData(NULL, copy, size, freePixels);
         CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
@@ -826,7 +829,7 @@ int32_t cwindow_set_cursor_image(int32_t window, const uint8_t* rgba, int32_t wi
         CGColorSpaceRelease(space);
         CGDataProviderRelease(provider);
         if (cg == NULL)
-            return CWINDOW_ERR_SYSTEM;
+            return Err::system;
         // scale image pixels per point: 2 for pixels drawn for a Retina display.
         if (scale <= 0) scale = 1;
         NSImage* image = [[NSImage alloc] initWithCGImage:cg size:NSMakeSize(width / scale, height / scale)];
@@ -840,11 +843,11 @@ int32_t cwindow_set_cursor_image(int32_t window, const uint8_t* rgba, int32_t wi
             cursors[key] = cursor;
         w.customCursor = cursor;
         [cursor set];
-        return CWINDOW_OK;
+        return Err::ok;
     }
 }
 
-void cwindow_request_frame(int32_t window) {
+void winRequestFrame(int32_t window) noexcept {
     CWWindow* w = windowOf(window);
     if (w == nil)
         return;
@@ -860,15 +863,15 @@ static void freePixels(void* info, const void* data, size_t size) {
     free((void*)data);
 }
 
-int32_t cwindow_present(int32_t window, const uint8_t* rgba, int32_t width, int32_t height) {
+int32_t winPresent(int32_t window, const uint8_t* rgba, int32_t width, int32_t height) noexcept {
     @autoreleasepool {
         CWWindow* w = windowOf(window);
         if (w == nil || rgba == NULL || width <= 0 || height <= 0)
-            return CWINDOW_ERR_INVALID;
+            return Err::invalid;
         size_t size = (size_t)width * (size_t)height * 4;
-        uint8_t* copy = malloc(size);
+        uint8_t* copy = (uint8_t*)malloc(size);
         if (copy == NULL)
-            return CWINDOW_ERR_SYSTEM;
+            return Err::system;
         memcpy(copy, rgba, size);
         CGDataProviderRef provider = CGDataProviderCreateWithData(NULL, copy, size, freePixels);
         CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
@@ -878,7 +881,7 @@ int32_t cwindow_present(int32_t window, const uint8_t* rgba, int32_t width, int3
         CGColorSpaceRelease(space);
         CGDataProviderRelease(provider);
         if (image == NULL)
-            return CWINDOW_ERR_SYSTEM;
+            return Err::system;
         CALayer* layer = [w.view layer];
         [CATransaction begin];
         [CATransaction setDisableActions:YES];
@@ -886,11 +889,11 @@ int32_t cwindow_present(int32_t window, const uint8_t* rgba, int32_t width, int3
         [layer setContentsScale:[w.window backingScaleFactor]];
         [CATransaction commit];
         CGImageRelease(image);
-        return CWINDOW_OK;
+        return Err::ok;
     }
 }
 
-void cwindow_set_clipboard_text(const char* text) {
+void winSetClipboardText(const char* text) noexcept {
     if (text == NULL)
         return;
     @autoreleasepool {
@@ -902,7 +905,7 @@ void cwindow_set_clipboard_text(const char* text) {
     }
 }
 
-int32_t cwindow_clipboard_text(char* buf, int32_t cap) {
+int32_t winClipboardText(char* buf, int32_t cap) noexcept {
     @autoreleasepool {
         NSPasteboard* pb = [NSPasteboard generalPasteboard];
         NSString* str = [pb stringForType:NSPasteboardTypeString];
@@ -921,12 +924,12 @@ int32_t cwindow_clipboard_text(char* buf, int32_t cap) {
     }
 }
 
-uint64_t cwindow_native_window(int32_t window) {
+uint64_t winNativeWindow(int32_t window) noexcept {
     CWWindow* w = windowOf(window);
     return w != nil ? (uint64_t)(uintptr_t)(__bridge void*)w.window : 0;
 }
 
-uint64_t cwindow_native_view(int32_t window) {
+uint64_t winNativeView(int32_t window) noexcept {
     CWWindow* w = windowOf(window);
     return w != nil ? (uint64_t)(uintptr_t)(__bridge void*)w.view : 0;
 }
@@ -946,7 +949,7 @@ static NSFont* fontForStyle(double fontSize, int32_t bold, int32_t italic) {
     return font;
 }
 
-void cwindow_measure_text(const char* text, double font_size, int32_t bold, int32_t italic, double* out_w, double* out_h) {
+void winMeasureText(const char* text, double font_size, int32_t bold, int32_t italic, double* out_w, double* out_h) noexcept {
     if (text == NULL || text[0] == '\0') {
         if (out_w) *out_w = 0.0;
         if (out_h) *out_h = font_size * 1.25;
@@ -972,12 +975,12 @@ void cwindow_measure_text(const char* text, double font_size, int32_t bold, int3
     }
 }
 
-void cwindow_draw_text(uint8_t* rgba, int32_t buf_w, int32_t buf_h,
+void winDrawText(uint8_t* rgba, int32_t buf_w, int32_t buf_h,
                        int32_t x, int32_t y, const char* text,
                        double font_size, int32_t bold, int32_t italic,
                        uint8_t r, uint8_t g, uint8_t b, uint8_t a,
                        double scale,
-                       int32_t clip_x, int32_t clip_y, int32_t clip_w, int32_t clip_h) {
+                       int32_t clip_x, int32_t clip_y, int32_t clip_w, int32_t clip_h) noexcept {
     if (rgba == NULL || text == NULL || text[0] == '\0' || buf_w <= 0 || buf_h <= 0 || a == 0) return;
 
     @autoreleasepool {
@@ -1028,10 +1031,10 @@ void cwindow_draw_text(uint8_t* rgba, int32_t buf_w, int32_t buf_h,
     }
 }
 
-void cwindow_fill_rect(uint8_t* rgba, int32_t buf_w, int32_t buf_h,
+void winFillRect(uint8_t* rgba, int32_t buf_w, int32_t buf_h,
                        int32_t x, int32_t y, int32_t w, int32_t h,
                        uint8_t r, uint8_t g, uint8_t b, uint8_t a,
-                       int32_t clip_x, int32_t clip_y, int32_t clip_w, int32_t clip_h) {
+                       int32_t clip_x, int32_t clip_y, int32_t clip_w, int32_t clip_h) noexcept {
     if (rgba == NULL || buf_w <= 0 || buf_h <= 0 || w <= 0 || h <= 0 || a == 0) return;
 
     int32_t x0 = x > clip_x ? x : clip_x;

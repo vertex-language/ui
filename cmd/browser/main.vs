@@ -17,7 +17,7 @@ let chromeHeight: float32 = 44
 
 /// The page the browser starts on, when it is given none.
 func startPage(_ dir: string) -> string {
-    return dir + "examples/pages/home.html"
+    return dir + "testdata/pages/home.html"
 }
 
 /// The folder the program was started in, for finding the sample pages.

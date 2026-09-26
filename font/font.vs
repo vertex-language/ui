@@ -1,6 +1,5 @@
 package font
 
-import cfont
 import "ui/draw"
 
 /// What a font is asked for, in CSS terms: a list of families to try in
@@ -75,7 +74,7 @@ public final class Face {
         var leading: double = 0
         var xHeight: double = 0
         var space: double = 0
-        cfont_metrics(id, &ascent, &descent, &leading, &xHeight, &space)
+        fontMetrics(id, &ascent, &descent, &leading, &xHeight, &space)
         Ascent = float32(ascent)
         Descent = float32(descent)
         Leading = float32(leading)
@@ -111,7 +110,7 @@ public final class Face {
                 glyphs.withUnsafeMutableBufferPointer { gp in
                     faces.withUnsafeMutableBufferPointer { fp in
                         advances.withUnsafeMutableBufferPointer { ap in
-                            cfont_shape(Id, UnsafePointer<CChar>(bp.baseAddress!), int32(bytes.count),
+                            fontShape(Id, UnsafePointer<CChar>(bp.baseAddress!), int32(bytes.count),
                                         gp.baseAddress!, fp.baseAddress!, ap.baseAddress!, int32(cap))
                         }
                     }
@@ -153,7 +152,7 @@ var aliases: [string: string] = [:]
 public func Register(path: string, as name: string) -> bool {
     var buf = [CChar](repeating: 0, count: 256)
     let ok = buf.withUnsafeMutableBufferPointer { bp in
-        cfont_register(path, bp.baseAddress, int32(bp.count))
+        fontRegister(path, bp.baseAddress, int32(bp.count))
     }
     if ok == 0 { return false }
     let family = string(cString: buf)
@@ -184,14 +183,14 @@ public func Load(_ spec: Spec) -> Face {
         var name = trimQuotes(spec.Families[i])
         if let real = aliases[name] { name = real }
         if !name.isEmpty {
-            id = cfont_face(name, double(size), spec.Weight, spec.Italic ? 1 : 0)
+            id = fontFace(name, double(size), spec.Weight, spec.Italic ? 1 : 0)
             family = name
         }
         i += 1
     }
     if id < 0 {
         family = "sans-serif"
-        id = cfont_face(family, double(size), spec.Weight, spec.Italic ? 1 : 0)
+        id = fontFace(family, double(size), spec.Weight, spec.Italic ? 1 : 0)
     }
     var used = spec
     used.Size = size
@@ -253,13 +252,13 @@ func rasterize(face: int32, glyph: uint32, scale: float32) -> Glyph {
     var top: int32 = 0
     var width: int32 = 0
     var height: int32 = 0
-    var need = cfont_glyph(face, glyph, double(scale), &left, &top, &width, &height, nil, 0)
+    var need = fontGlyph(face, glyph, double(scale), &left, &top, &width, &height, nil, 0)
     if need <= 0 || width <= 0 || height <= 0 {
         return Glyph(Mask: draw.Mask(width: 0, height: 0, data: []), Left: 0, Top: 0)
     }
     var data = [uint8](repeating: 0, count: int(need))
     need = data.withUnsafeMutableBufferPointer { dp in
-        cfont_glyph(face, glyph, double(scale), &left, &top, &width, &height, dp.baseAddress!, int32(dp.count))
+        fontGlyph(face, glyph, double(scale), &left, &top, &width, &height, dp.baseAddress!, int32(dp.count))
     }
     return Glyph(Mask: draw.Mask(width: width, height: height, data: data), Left: left, Top: top)
 }

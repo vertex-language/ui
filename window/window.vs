@@ -1,7 +1,5 @@
 package window
 
-import cwindow
-
 /// How a window is made, for the cases where the defaults are not wanted.
 public struct Options {
     /// The user can resize it. On by default.
@@ -43,12 +41,12 @@ public func Create(title: string, size: Size = Size(1280, 720),
     if options.Resizable { flags |= 1 }
     if options.Decorated { flags |= 2 }
     if options.Visible { flags |= 4 }
-    let id = cwindow_create(title, float64(size.Width), float64(size.Height), flags)
+    let id = winCreate(title, float64(size.Width), float64(size.Height), flags)
     if id < 0 {
         throw errorFor(id, "creating a window titled \"\(title)\"")
     }
     if let min = options.MinSize {
-        cwindow_set_min_size(id, float64(min.Width), float64(min.Height))
+        winSetMinSize(id, float64(min.Width), float64(min.Height))
     }
     return Window(Id: id)
 }
@@ -62,7 +60,7 @@ public func Create(title: string, size: Size = Size(1280, 720),
 /// the window system's own wait when nothing at all can run.
 public func (w: borrowing Window) WaitEvent() async -> Event? {
     while true {
-        let kind = cwindow_next(w.Id)
+        let kind = winNext(w.Id)
         if kind < 0 {
             return nil
         }
@@ -72,7 +70,7 @@ public func (w: borrowing Window) WaitEvent() async -> Event? {
             }
             continue
         }
-        let fd = cwindow_descriptor(w.Id)
+        let fd = winDescriptor(w.Id)
         if fd < 0 {
             return nil
         }
@@ -83,7 +81,7 @@ public func (w: borrowing Window) WaitEvent() async -> Event? {
 /// The next event if one is already queued, and nil if none is. Never waits.
 public func (w: borrowing Window) PollEvent() -> Event? {
     while true {
-        let kind = cwindow_next(w.Id)
+        let kind = winNext(w.Id)
         if kind <= 0 {
             return nil
         }
@@ -96,57 +94,57 @@ public func (w: borrowing Window) PollEvent() -> Event? {
 /// Asks for one `.frame` event, at the display's next refresh. Ask again
 /// from the frame to keep animating; stop asking to stop.
 public func (w: borrowing Window) RequestFrame() {
-    cwindow_request_frame(w.Id)
+    winRequestFrame(w.Id)
 }
 
 // MARK: - Geometry and state
 
 /// The content area's size in points.
 public func (w: borrowing Window) Size() -> Size {
-    return Size(float32(cwindow_width(w.Id)), float32(cwindow_height(w.Id)))
+    return Size(float32(winWidth(w.Id)), float32(winHeight(w.Id)))
 }
 
 /// The content area's size in device pixels: what to size pixels for.
 public func (w: borrowing Window) PixelSize() -> PixelSize {
-    return PixelSize(cwindow_pixel_width(w.Id), cwindow_pixel_height(w.Id))
+    return PixelSize(winPixelWidth(w.Id), winPixelHeight(w.Id))
 }
 
 /// Device pixels per point on the display the window is on.
 public func (w: borrowing Window) ScaleFactor() -> float32 {
-    return float32(cwindow_scale(w.Id))
+    return float32(winScale(w.Id))
 }
 
 /// The appearance the window is drawn in.
 public func (w: borrowing Window) Theme() -> Theme {
-    return cwindow_theme(w.Id) == 1 ? .dark : .light
+    return winTheme(w.Id) == 1 ? .dark : .light
 }
 
 /// Whether keyboard input goes to this window.
 public func (w: borrowing Window) Focused() -> bool {
-    return cwindow_focused(w.Id) == 1
+    return winFocused(w.Id) == 1
 }
 
 // MARK: - Changing it
 
 public func (w: borrowing Window) SetTitle(_ title: string) {
-    cwindow_set_title(w.Id, title)
+    winSetTitle(w.Id, title)
 }
 
 /// Resizes the content area, in points.
 public func (w: borrowing Window) SetSize(_ size: Size) {
-    cwindow_set_size(w.Id, float64(size.Width), float64(size.Height))
+    winSetSize(w.Id, float64(size.Width), float64(size.Height))
 }
 
 public func (w: borrowing Window) SetMinSize(_ size: Size) {
-    cwindow_set_min_size(w.Id, float64(size.Width), float64(size.Height))
+    winSetMinSize(w.Id, float64(size.Width), float64(size.Height))
 }
 
 public func (w: borrowing Window) SetVisible(_ visible: bool) {
-    cwindow_set_visible(w.Id, visible ? 1 : 0)
+    winSetVisible(w.Id, visible ? 1 : 0)
 }
 
 public func (w: borrowing Window) SetFullscreen(_ fullscreen: bool) {
-    cwindow_set_fullscreen(w.Id, fullscreen ? 1 : 0)
+    winSetFullscreen(w.Id, fullscreen ? 1 : 0)
 }
 
 /// The system mouse cursor shape.
@@ -173,7 +171,7 @@ public func (w: borrowing Window) SetCursor(_ cursor: Cursor) {
     case .resizeUpDown: c = 5
     case .hidden: c = 6
     }
-    cwindow_set_cursor(w.Id, c)
+    winSetCursor(w.Id, c)
 }
 
 /// Shows a cursor drawn by the program over this window: `width * height`
@@ -189,7 +187,7 @@ public func (w: borrowing Window) SetCursorImage(_ pixels: borrowing [uint8], wi
             "\(pixels.count) bytes for a \(width)x\(height) cursor, which wants \(want)")
     }
     let rc = pixels.withUnsafeBufferPointer { bp in
-        cwindow_set_cursor_image(w.Id, bp.baseAddress, width, height, hotX, hotY, float64(scale))
+        winSetCursorImage(w.Id, bp.baseAddress, width, height, hotX, hotY, float64(scale))
     }
     if rc < 0 {
         throw errorFor(rc, "setting a \(width)x\(height) cursor")
@@ -199,5 +197,5 @@ public func (w: borrowing Window) SetCursorImage(_ pixels: borrowing [uint8], wi
 /// Closes the window. It is consumed: nothing can be asked of it afterwards,
 /// and a task waiting on it gets nil.
 public func (w: consuming Window) Close() {
-    cwindow_close(w.Id)
+    winClose(w.Id)
 }

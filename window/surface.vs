@@ -1,7 +1,5 @@
 package window
 
-import cwindow
-
 /// What a window shows.
 public struct Surface {
     let window: int32
@@ -24,7 +22,7 @@ public func (s: borrowing Surface) Present(_ pixels: borrowing [uint8], size: Pi
             "\(pixels.count) bytes for \(size.Width)x\(size.Height) pixels, which want \(want)")
     }
     let rc = pixels.withUnsafeBufferPointer { bp in
-        cwindow_present(s.window, bp.baseAddress, size.Width, size.Height)
+        winPresent(s.window, bp.baseAddress, size.Width, size.Height)
     }
     if rc < 0 {
         throw errorFor(rc, "presenting \(size.Width)x\(size.Height) pixels")
@@ -43,8 +41,8 @@ public enum SurfaceKind {
 public func (s: borrowing Surface) RawParts() -> (kind: SurfaceKind, window: uint64, view: uint64) {
     // Converted, since uint64_t imports as UInt64 on Darwin and, being
     // unsigned long there, as UInt on Linux and Android.
-    return (kind: .appKit, window: uint64(cwindow_native_window(s.window)),
-            view: uint64(cwindow_native_view(s.window)))
+    return (kind: .appKit, window: uint64(winNativeWindow(s.window)),
+            view: uint64(winNativeView(s.window)))
 }
 
 /// Copies a rectangular block of premultiplied RGBA8 pixels from `source` into `destination`.

@@ -1,8 +1,9 @@
-// cfont for macOS: CoreText faces, shaping and glyph masks.
+// ui.font on macOS: CoreText faces, shaping and glyph masks. See font.cpp.
+module;
 #import <Cocoa/Cocoa.h>
 #import <CoreText/CoreText.h>
 #include <string.h>
-#include "cfont.h"
+module ui.font;
 
 // Faces are kept for the life of the process: a page uses a handful of
 // families at a dozen sizes, and a face is asked for by every word.
@@ -62,7 +63,7 @@ static NSString* platformFamily(NSString* family) {
     return family;
 }
 
-int32_t cfont_face(const char* family, double size, int32_t weight, int32_t italic) {
+int32_t fontFace(const char* family, double size, int32_t weight, int32_t italic) noexcept {
     if (family == NULL || size <= 0)
         return -1;
     @autoreleasepool {
@@ -113,7 +114,7 @@ int32_t cfont_face(const char* family, double size, int32_t weight, int32_t ital
     }
 }
 
-int32_t cfont_register(const char* path, char* family, int32_t cap) {
+int32_t fontRegister(const char* path, char* family, int32_t cap) noexcept {
     if (path == NULL)
         return 0;
     @autoreleasepool {
@@ -132,7 +133,7 @@ int32_t cfont_register(const char* path, char* family, int32_t cap) {
         CTFontManagerRegisterFontsForURL((__bridge CFURLRef)url, kCTFontManagerScopeProcess, &error);
         if (error) CFRelease(error);
         CTFontDescriptorRef d = (CTFontDescriptorRef)CFArrayGetValueAtIndex(descriptors, 0);
-        CFStringRef name = CTFontDescriptorCopyAttribute(d, kCTFontFamilyNameAttribute);
+        CFStringRef name = (CFStringRef)CTFontDescriptorCopyAttribute(d, kCTFontFamilyNameAttribute);
         if (name != NULL && family != NULL && cap > 0) {
             if (!CFStringGetCString(name, family, cap, kCFStringEncodingUTF8))
                 family[0] = 0;
@@ -143,8 +144,8 @@ int32_t cfont_register(const char* path, char* family, int32_t cap) {
     }
 }
 
-void cfont_metrics(int32_t face, double* ascent, double* descent, double* leading,
-                   double* x_height, double* space_advance) {
+void fontMetrics(int32_t face, double* ascent, double* descent, double* leading,
+                   double* x_height, double* space_advance) noexcept {
     CTFontRef font = fontOf(face);
     if (font == NULL) {
         if (ascent) *ascent = 0;
@@ -169,8 +170,8 @@ void cfont_metrics(int32_t face, double* ascent, double* descent, double* leadin
     }
 }
 
-int32_t cfont_shape(int32_t face, const char* text, int32_t len,
-                    uint32_t* glyphs, int32_t* faces_out, float* advances, int32_t cap) {
+int32_t fontShape(int32_t face, const char* text, int32_t len,
+                    uint32_t* glyphs, int32_t* faces_out, float* advances, int32_t cap) noexcept {
     CTFontRef font = fontOf(face);
     if (font == NULL || text == NULL || len <= 0)
         return 0;
@@ -241,9 +242,9 @@ static CTFontRef scaledFont(int32_t face, double scale) {
     return made;
 }
 
-int32_t cfont_glyph(int32_t face, uint32_t glyph, double scale,
+int32_t fontGlyph(int32_t face, uint32_t glyph, double scale,
                     int32_t* left, int32_t* top, int32_t* width, int32_t* height,
-                    uint8_t* buf, int32_t cap) {
+                    uint8_t* buf, int32_t cap) noexcept {
     CTFontRef font = scaledFont(face, scale);
     if (font == NULL)
         return 0;

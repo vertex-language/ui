@@ -42,7 +42,7 @@ public struct Modifiers {
     }
 }
 
-// modifiersFrom reads cwindow's modifier bits.
+// modifiersFrom reads window.cpp's modifier bits (Mod).
 func modifiersFrom(_ bits: int32) -> Modifiers {
     var m = Modifiers()
     m.Shift = bits & 1 != 0

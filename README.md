@@ -22,9 +22,9 @@ vsc run main.vs
 
 | Package | What it is | Native code |
 | :--- | :--- | :--- |
-| **`ui/window`** | A native window: creation, an async event queue, a frame clock, a pixel surface, cursors, the clipboard. | `cwindow`: Cocoa on macOS, NativeActivity on Android |
+| **`ui/window`** | A native window: creation, an async event queue, a frame clock, a pixel surface, cursors, the clipboard. | `window.cpp` (`ui.window`): Cocoa in `window_darwin.mm`, NativeActivity in `window_android.cpp` |
 | **`ui/draw`** | A software rasterizer over premultiplied RGBA pixels: fills, anti-aliased rounded corners, borders, gradients, 8-bit masks, images resampled up or down. | none |
-| **`ui/font`** | Faces by family, size, weight and slant; text shaped into glyphs with a per-word cache; glyph masks at any scale. | `cfont` (CoreText) |
+| **`ui/font`** | Faces by family, size, weight and slant; text shaped into glyphs with a per-word cache; glyph masks at any scale. | `font.cpp` (`ui.font`): CoreText in `font_darwin.mm` |
 | **`ui/webview`** | HTML and CSS: the cascade, layout, painting, and input. | none |
 
 Everything a page needs from the platform goes through `window`, `font` and
@@ -128,10 +128,10 @@ No JavaScript. The DOM (`text/html`) is the API: edit nodes and call
 vsc run browser
 
 # A page rendered to a PNG, without a window.
-vsc run snapshot -- examples/pages/home.html out.png 900 700 2
+vsc run snapshot -- testdata/pages/home.html out.png 900 700 2
 
 # The engine timed on a page: first frame, relayout, scroll, hover.
-vsc run bench -- examples/pages/docs.html
+vsc run bench -- testdata/pages/docs.html
 
 # The checks.
 vsc run check-draw
