@@ -1,9 +1,11 @@
 package webview
 
-import "text/html"
-import "text/css"
-import "text/css/selector"
-import "ui/draw"
+import (
+    "text/css"
+    "text/css/selector"
+    "text/html"
+    "ui/draw"
+)
 
 /// One selector of one rule, with what the cascade sorts by.
 /// One test of a rule that asks about hover, focus or the press.

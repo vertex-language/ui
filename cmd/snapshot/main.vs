@@ -4,12 +4,14 @@
 //     vsc run snapshot -- page.html out.png [width] [height] [scale]
 package main
 
-import "fs"
-import "ui/window"
-import "ui/draw"
-import "ui/webview"
-import "image"
-import "image/png"
+import (
+    "fs"
+    "image"
+    "image/png"
+    "ui/draw"
+    "ui/webview"
+    "ui/window"
+)
 
 func number(_ s: string, _ fallback: float32) -> float32 {
     let b = [uint8](s.utf8)

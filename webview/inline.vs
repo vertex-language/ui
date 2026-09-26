@@ -1,7 +1,9 @@
 package webview
 
-import "ui/draw"
-import "ui/font"
+import (
+    "ui/draw"
+    "ui/font"
+)
 
 enum ItemKind: Equatable {
     case word

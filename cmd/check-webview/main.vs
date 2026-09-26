@@ -1,11 +1,13 @@
 // The webview checked headless: styles, layout, painting, input.
 package main
 
-import "text/html"
-import "text/css"
-import "text/css/selector"
-import "ui/draw"
-import "ui/webview"
+import (
+    "text/css"
+    "text/css/selector"
+    "text/html"
+    "ui/draw"
+    "ui/webview"
+)
 
 typealias Display = webview.Display
 typealias Length = webview.Length

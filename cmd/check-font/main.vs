@@ -1,8 +1,10 @@
 // Fonts checked: metrics, shaping, glyph masks, drawing.
 package main
 
-import "ui/draw"
-import "ui/font"
+import (
+    "ui/draw"
+    "ui/font"
+)
 
 var failures = 0
 

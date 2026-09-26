@@ -1,7 +1,9 @@
 package webview
 
-import "text/html"
-import "ui/draw"
+import (
+    "text/html"
+    "ui/draw"
+)
 
 /// What lies under a point: the deepest box, the element it belongs
 /// to, and for text, where in the text.

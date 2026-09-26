@@ -1,8 +1,10 @@
 package webview
 
-import "text/html"
-import "ui/draw"
-import "ui/font"
+import (
+    "text/html"
+    "ui/draw"
+    "ui/font"
+)
 
 public enum PaintKind: Equatable {
     case fill

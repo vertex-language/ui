@@ -10,10 +10,21 @@ User interface packages: native windows, 2D rasterization, fonts, and an HTML/CS
 
 ## Quick Start
 
-Run any entry point with:
+Run any program or tool in `cmd/` directly with `vsc run`:
 
 ```bash
-vsc run main.vs
+# Launch the browser with the demo pages
+vsc run browser
+
+# Interactive window examples
+vsc run hello
+vsc run paint
+
+# Render a page to PNG headlessly
+vsc run snapshot -- testdata/pages/home.html out.png 900 700 2
+
+# Run checks
+vsc run check-webview
 ```
 
 ---
@@ -37,8 +48,10 @@ Everything a page needs from the platform goes through `window`, `font` and
 ```vertex
 package main
 
-import "ui/window"
-import "ui/webview"
+import (
+    "ui/webview"
+    "ui/window"
+)
 
 func main() async -> int32 {
     let win = try window.Create(title: "Docs", size: window.Size(900, 700))

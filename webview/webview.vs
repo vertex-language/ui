@@ -1,14 +1,16 @@
 package webview
 
-import "text/html"
-import "text/css"
-import "text/css/selector"
-import "ui/window"
-import "ui/draw"
-import "fs"
-import "image"
-import "image/format"
-import "ui/font"
+import (
+    "fs"
+    "image"
+    "image/format"
+    "text/css"
+    "text/css/selector"
+    "text/html"
+    "ui/draw"
+    "ui/font"
+    "ui/window"
+)
 
 /// How a view is set up.
 public struct Config {

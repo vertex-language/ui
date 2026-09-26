@@ -5,9 +5,11 @@
 // a logged-in session -- a window needs a display.
 package main
 
-import "ui/window"
-import "os/process"
-import "time"
+import (
+    "os/process"
+    "time"
+    "ui/window"
+)
 
 var failures = 0
 

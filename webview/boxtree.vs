@@ -1,8 +1,10 @@
 package webview
 
-import "text/html"
-import "text/css/selector"
-import "ui/draw"
+import (
+    "text/css/selector"
+    "text/html"
+    "ui/draw"
+)
 
 /// What the box tree builder needs from the view: styles, the page's
 /// state, and images.

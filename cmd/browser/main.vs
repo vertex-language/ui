@@ -5,13 +5,15 @@
 //     vsc run browser [page.html]
 package main
 
-import "fs"
-import "ui/window"
-import "ui/draw"
-import "ui/font"
-import "ui/webview"
-import "image"
-import "image/png"
+import (
+    "fs"
+    "image"
+    "image/png"
+    "ui/draw"
+    "ui/font"
+    "ui/webview"
+    "ui/window"
+)
 
 let chromeHeight: float32 = 44
 

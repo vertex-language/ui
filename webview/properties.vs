@@ -1,7 +1,9 @@
 package webview
 
-import "text/css"
-import "ui/draw"
+import (
+    "text/css"
+    "ui/draw"
+)
 
 /// The properties the engine knows, each a longhand. Shorthands are
 /// expanded into these when a declaration is parsed.

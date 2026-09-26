@@ -4,10 +4,12 @@
 //     vsc run bench -- page.html [width] [height]
 package main
 
-import "time"
-import "ui/window"
-import "ui/draw"
-import "ui/webview"
+import (
+    "time"
+    "ui/draw"
+    "ui/webview"
+    "ui/window"
+)
 
 func number(_ s: string, _ fallback: float32) -> float32 {
     let b = [uint8](s.utf8)

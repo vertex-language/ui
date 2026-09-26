@@ -1,8 +1,10 @@
 package webview
 
-import "text/html"
-import "ui/window"
-import "ui/draw"
+import (
+    "text/html"
+    "ui/draw"
+    "ui/window"
+)
 
 extension WebView {
     /// Takes a window event. Pointer events inside the view's bounds,

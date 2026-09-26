@@ -1,7 +1,9 @@
 package webview
 
-import "ui/draw"
-import "ui/font"
+import (
+    "ui/draw"
+    "ui/font"
+)
 
 /// The style an element ends up with: every property, resolved as far
 /// as the cascade can without knowing the containing block. One per
