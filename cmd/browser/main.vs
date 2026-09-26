@@ -9,16 +9,20 @@ import (
     "fs"
     "image"
     "image/png"
-    "ui/draw"
-    "ui/font"
+    "image/draw"
+    "text/font"
     "ui/webview"
     "ui/window"
 )
 
 let chromeHeight: float32 = 44
 
-/// The page the browser starts on, when it is given none.
+/// The page the browser starts on, when it is given none: the web
+/// engine's sample pages, from the web repository or beside it.
 func startPage(_ dir: string) -> string {
+    for candidate in ["testdata/pages/home.html", "../web/testdata/pages/home.html"] {
+        if (try? fs.Stat(fs.Path(dir + candidate))) != nil { return dir + candidate }
+    }
     return dir + "testdata/pages/home.html"
 }
 
@@ -58,7 +62,7 @@ final class Browser {
         pixels = [uint8](repeating: 0, count: int(pixelSize.Width) * int(pixelSize.Height) * 4)
         let size = win.Size()
         view.SetBounds(origin: window.Point(0, chromeHeight), size: window.Size(size.Width, size.Height - chromeHeight))
-        view.IsVisited { url in self.visited.contains(url) }
+        view.Page.IsVisited { url in self.visited.contains(url) }
     }
 
     func requestFrame() {
@@ -73,7 +77,7 @@ final class Browser {
         url = target
         visited.insert(target)
         if target.contains("://") {
-            view.LoadHTML("""
+            view.Page.LoadHTML("""
             <body style="font-family: system-ui; margin: 40px; color: #333">
               <h2 style="margin-top:0">This browser stays on disk</h2>
               <p>It was asked to open <code style="background:#eee;padding:2px 6px;border-radius:4px">\(target)</code>.</p>
@@ -91,15 +95,15 @@ final class Browser {
             history.append(url)
             position = history.count - 1
         }
-        win.SetTitle(view.Title.isEmpty ? "Vertex Browser" : view.Title + " — Vertex Browser")
+        win.SetTitle(view.Page.Title.isEmpty ? "Vertex Browser" : view.Page.Title + " — Vertex Browser")
         requestFrame()
     }
 
     func load(_ path: string) {
         do {
-            try view.LoadFile(path)
+            try view.Page.LoadFile(path)
         } catch {
-            view.LoadHTML("<body style='font-family:system-ui;margin:40px'><h2>Cannot open the file</h2><p>\(path)</p><p><a href='about:home'>Start page</a></p></body>")
+            view.Page.LoadHTML("<body style='font-family:system-ui;margin:40px'><h2>Cannot open the file</h2><p>\(path)</p><p><a href='about:home'>Start page</a></p></body>")
         }
     }
 
@@ -190,7 +194,7 @@ final class Browser {
         case .resized(_), .scaleFactorChanged(_):
             resized()
         case .keyDown(let k):
-            if k.Code == .escape && view.FocusedElement == nil {
+            if k.Code == .escape && view.Page.FocusedElement == nil {
                 return false
             }
             if k.Modifiers.Meta && k.Code == .bracketLeft { back(); return true }
@@ -201,7 +205,8 @@ final class Browser {
             if view.Handle(event) == .handled { requestFrame() }
         case .pointerMoved(_):
             _ = view.Handle(event)
-            if let c = view.DesiredCursor(), c != cursor {
+            let c = view.DesiredCursor()
+            if c != cursor {
                 cursor = c
                 win.SetCursor(c)
             }
@@ -240,14 +245,14 @@ func main() async -> int32 {
 
     let browser = Browser(win: win)
     let view = browser.view
-    view.OnNavigate { target in
+    view.Page.OnNavigate { target in
         browser.go(target)
     }
-    view.OnHoverLink { link in
+    view.Page.OnHoverLink { link in
         browser.status = link ?? ""
         browser.requestFrame()
     }
-    view.OnSubmit { submission in
+    view.Page.OnSubmit { submission in
         var text = "Submitted to \(submission.Action) by \(submission.Method):"
         for f in submission.Fields {
             text += " \(f.Name)=\(f.Value)"
@@ -256,10 +261,10 @@ func main() async -> int32 {
         browser.status = text
         browser.requestFrame()
     }
-    view.OnAction { name, value in
+    view.Page.OnAction { name, value in
         print("action \(name): \(value)")
     }
-    view.OnTitleChanged { title in
+    view.Page.OnTitleChanged { title in
         win.SetTitle(title.isEmpty ? "Vertex Browser" : title + " — Vertex Browser")
     }
 
