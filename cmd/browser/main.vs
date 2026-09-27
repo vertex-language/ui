@@ -1,8 +1,10 @@
 // A small desktop browser over ui/webview: an address bar, back and
-// forward, and pages loaded from files. Links between local pages are
-// followed; anything else is shown as a page that says where it went.
+// forward, and pages from files or the network. A page from the network
+// is fetched with what it refers to before it is shown, and a report of
+// what the engine couldn't use is printed (net.vs).
 //
-//     vsc run browser [page.html]
+//     vsc run browser [page.html | https://...]
+//     vsc run browser -- --snapshot out.png https://github.com
 package main
 
 import (
@@ -13,6 +15,7 @@ import (
     "text/font"
     "ui/webview"
     "ui/window"
+    "web/fetch"
 )
 
 let chromeHeight: float32 = 44
@@ -53,6 +56,12 @@ final class Browser {
     /// browser without a screen: --snapshot path.
     var snapshotPath: string? = nil
     var snapshotTaken = false
+    /// Counts loads, so that a page fetched after the user went elsewhere
+    /// is dropped.
+    var loads = 0
+    var loading = false
+    /// Set once a snapshot is written: the program ends.
+    var done = false
 
     init(win: window.Window) {
         self.win = win
@@ -76,19 +85,24 @@ final class Browser {
     func go(_ target: string, record: Bool = true) {
         url = target
         visited.insert(target)
-        if target.contains("://") {
-            view.Page.LoadHTML("""
-            <body style="font-family: system-ui; margin: 40px; color: #333">
-              <h2 style="margin-top:0">This browser stays on disk</h2>
-              <p>It was asked to open <code style="background:#eee;padding:2px 6px;border-radius:4px">\(target)</code>.</p>
-              <p>Fetching pages over the network is the host's job; the webview renders whatever it is handed.</p>
-              <p><a href="about:home">Back to the start page</a></p>
-            </body>
-            """)
+        loads += 1
+        let scheme = fetch.Scheme(target)
+        if scheme == "http" || scheme == "https" {
+            let generation = loads
+            loading = true
+            status = "Loading \(target)…"
+            Task { await self.loadRemote(target, generation) }
         } else if target == "about:home" || target.isEmpty {
+            loading = false
+            view.Page.Configuration.Fetcher = fetch.Fetcher()
             load(startPage(workingDirectory()))
+        } else if scheme == "" || scheme == "file" {
+            loading = false
+            view.Page.Configuration.Fetcher = fetch.Fetcher()
+            load(fetch.FilePath(target))
         } else {
-            load(target)
+            loading = false
+            showMessage("Can't open this", "There's no way to open <code>\(target)</code> here.")
         }
         if record {
             while history.count > position + 1 { history.removeLast() }
@@ -97,6 +111,35 @@ final class Browser {
         }
         win.SetTitle(view.Page.Title.isEmpty ? "Vertex Browser" : view.Page.Title + " — Vertex Browser")
         requestFrame()
+    }
+
+    /// Fetches a page and what it refers to, then shows it.
+    func loadRemote(_ target: string, _ generation: int) async {
+        let remote = await fetchPage(target)
+        if generation != loads { return }
+        loading = false
+        status = ""
+        print(report(remote))
+        guard remote.page.ok, let body = remote.page.body else {
+            let why = remote.page.status == 0 ? remote.page.error : "the server answered \(remote.page.status)"
+            showMessage("Can't load the page", "<code>\(target)</code>: \(why)")
+            requestFrame()
+            return
+        }
+        url = remote.url
+        if history.count > 0 && position >= 0 && position < history.count { history[position] = remote.url }
+        let resources = remote.resources
+        view.Page.Configuration.Fetcher = fetch.Fetcher({ u in
+            if let l = resources[u], l.ok { return l.body }
+            return nil
+        })
+        view.Page.LoadHTML(string(decoding: body, as: UTF8.self), baseURL: remote.url)
+        win.SetTitle(view.Page.Title.isEmpty ? "Vertex Browser" : view.Page.Title + " — Vertex Browser")
+        requestFrame()
+    }
+
+    func showMessage(_ heading: string, _ text: string) {
+        view.Page.LoadHTML("<body style='font-family:system-ui;margin:40px;color:#333'><h2 style='margin-top:0'>\(heading)</h2><p>\(text)</p><p><a href='about:home'>Start page</a></p></body>")
     }
 
     func load(_ path: string) {
@@ -175,9 +218,12 @@ final class Browser {
         } catch let e as window.WindowError {
             print("present: \(e.Message)")
         } catch {}
-        if let path = snapshotPath, !snapshotTaken {
+        if let path = snapshotPath, !snapshotTaken, !loading {
             snapshotTaken = true
             try? fs.WriteFile(fs.Path(path), png.Encode(image.RGBA(width: int(pixelSize.Width), height: int(pixelSize.Height), pixels: pixels)))
+            done = true
+            // One more event, for the loop to see that it's done.
+            win.RequestFrame()
         }
     }
 
@@ -277,7 +323,7 @@ func main() async -> int32 {
     browser.go(args.count > 1 ? args[1] : "about:home")
 
     while let event = await win.WaitEvent() {
-        if !browser.handle(event) {
+        if !browser.handle(event) || browser.done {
             win.Close()
             return 0
         }
