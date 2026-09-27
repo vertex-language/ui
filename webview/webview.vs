@@ -8,9 +8,11 @@ import (
 )
 
 /// A web page inside a window: the part of the window it covers, the
-/// window's events turned into the page's input, the page's cursor, and
-/// the system clipboard. The page itself -- loading, styles, layout,
-/// forms, selection -- is `Page`, a `web.Page`, which needs no window.
+/// window's events turned into the page's input, the page's cursor, the
+/// system clipboard, and navigation -- files, and pages from the network
+/// with what they refer to, history, and what links lead to
+/// (navigation.vs). The page itself -- styles, layout, forms, selection
+/// -- is `Page`, a `web.Page`, which needs no window.
 ///
 /// Everything here runs on the main thread, where the window is.
 @MainActor
@@ -20,6 +22,21 @@ public final class WebView {
 
     var origin: window.Point
     var size: window.Size
+
+    // Navigation (navigation.vs).
+    var url: string = ""
+    var history: [string] = []
+    var position: int = -1
+    var visited = Set<string>()
+    var loads = 0
+    var loading = false
+    var onLoadStarted: ((string) -> Void)? = nil
+    var onLoadFinished: ((LoadReport) -> Void)? = nil
+    /// Where "about:home" goes, and "" does: a file path or URL.
+    public var StartPage: string = ""
+    /// A folder each page from the network is recorded into, with what it
+    /// refers to, for web/cmd/snapshot --archive to show offline.
+    public var RecordInto: string? = nil
 
     public init(page: web.Page? = nil) {
         if let p = page {
@@ -31,6 +48,10 @@ public final class WebView {
         size = window.Size(800, 600)
         Page.Clipboard = SystemClipboard()
         Page.SetViewportSize(draw.Size(size.Width, size.Height))
+        // Links lead where they point, and :visited knows where the view
+        // has been. A host that handles navigation itself sets its own.
+        Page.OnNavigate { target in self.Navigate(target) }
+        Page.IsVisited { u in self.visited.contains(u) }
     }
 
     /// Where the view sits in the window, and how big it is, in points.

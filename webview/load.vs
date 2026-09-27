@@ -2,7 +2,7 @@
 // before the page is shown, and handed to it from memory. The report
 // says what came back and what the engine couldn't use -- the list of
 // what a site still needs.
-package main
+package webview
 
 import (
     "image/format"
@@ -32,6 +32,8 @@ struct RemotePage {
     var stylesheets: [string] = []
     var images: [string] = []
     var fonts: [string] = []
+    /// The page's own <style> elements.
+    var inlineStyles: [string] = []
     var elapsed: float64 = 0
 }
 
@@ -102,7 +104,10 @@ func fetchPage(_ url: string) async -> RemotePage {
     }
     // What the page's own <style> elements refer to.
     var sheetsToScan: [(text: string, base: string)] = []
-    for style in doc.ElementsByTagName("style") { sheetsToScan.append((text: style.InnerText(), base: base)) }
+    for style in doc.ElementsByTagName("style") {
+        sheetsToScan.append((text: style.InnerText(), base: base))
+        remote.inlineStyles.append(style.InnerText())
+    }
 
     var round = 0
     while round < 3 {
@@ -185,32 +190,79 @@ func isFont(_ u: string) -> bool {
     return lower.hasSuffix(".woff2") || lower.hasSuffix(".woff") || lower.hasSuffix(".ttf") || lower.hasSuffix(".otf")
 }
 
-/// What came back, and what the engine couldn't use.
-func report(_ r: RemotePage) -> string {
-    var out = "\(r.url): \(r.page.status == 0 ? r.page.error : "\(r.page.status)") \(r.page.contentType), \((r.page.body?.count ?? 0) / 1024) KB, \(r.resources.count) resources in \(int(r.elapsed * 1000)) ms\n"
-    var failed: [string] = []
-    var undecodable: [string] = []
-    var sheetsOK = 0
-    var imagesOK = 0
+/// What a load brought back, and what the engine couldn't use: the list
+/// of what a site still needs.
+public struct LoadReport {
+    /// Where the page ended up, after redirects.
+    public var URL: string
+    /// The page's HTTP status; 0 where it failed before one (Error says
+    /// why), 200 for a file.
+    public var Status: int32
+    public var ContentType: string
+    public var Error: string
+    public var Bytes: int
+    public var Resources: int
+    public var Milliseconds: int
+    public var Stylesheets: int
+    public var StylesheetsLoaded: int
+    public var Images: int
+    public var ImagesDecoded: int
+    /// Web fonts @font-face names, which aren't fetched: the page
+    /// registers fonts from local files only.
+    public var Fonts: int
+    /// "stylesheet URL: why" for each that failed.
+    public var Failed: [string]
+    /// "URL: content type" for each image nothing here decodes.
+    public var Undecodable: [string]
+    /// What the stylesheets declare, and what the engine applies.
+    public var Coverage: css.Coverage
+
+    /// The report as text, for a terminal.
+    public func Text() -> string {
+        var out = "\(URL): \(Status == 0 ? Error : "\(Status)") \(ContentType), \(Bytes / 1024) KB, \(Resources) resources in \(Milliseconds) ms\n"
+        out += "  stylesheets: \(StylesheetsLoaded) of \(Stylesheets); images: \(ImagesDecoded) of \(Images) decoded\n"
+        out += Coverage.Report()
+        if Fonts > 0 { out += "  fonts: \(Fonts) named by @font-face, not fetched: the page registers fonts from local files only\n" }
+        if !Failed.isEmpty { out += "failed:\n" + Failed.map { "  " + $0 }.joined(separator: "\n") + "\n" }
+        if !Undecodable.isEmpty { out += "not decodable:\n" + Undecodable.map { "  " + $0 }.joined(separator: "\n") + "\n" }
+        return out
+    }
+}
+
+/// The report of a fetched page.
+func report(_ r: RemotePage) -> LoadReport {
+    var rep = LoadReport(URL: r.url, Status: r.page.status, ContentType: r.page.contentType, Error: r.page.error,
+                         Bytes: r.page.body?.count ?? 0, Resources: r.resources.count, Milliseconds: int(r.elapsed * 1000),
+                         Stylesheets: r.stylesheets.count, StylesheetsLoaded: 0, Images: r.images.count, ImagesDecoded: 0,
+                         Fonts: r.fonts.count, Failed: [], Undecodable: [], Coverage: css.Coverage())
     for u in r.stylesheets {
         guard let l = r.resources[u] else { continue }
-        if l.ok { sheetsOK += 1 } else { failed.append("  stylesheet \(u): \(l.status == 0 ? l.error : "\(l.status)")") }
+        if l.ok { rep.StylesheetsLoaded += 1 } else { rep.Failed.append("stylesheet \(u): \(l.status == 0 ? l.error : "\(l.status)")") }
     }
     for u in r.images {
         guard let l = r.resources[u] else { continue }
         if !l.ok {
-            failed.append("  image \(u): \(l.status == 0 ? l.error : "\(l.status)")")
+            rep.Failed.append("image \(u): \(l.status == 0 ? l.error : "\(l.status)")")
         } else if let b = l.body, format.Decode(b) == nil {
-            undecodable.append("  image \(u): \(l.contentType.isEmpty ? "unknown type" : l.contentType)")
+            rep.Undecodable.append("\(u): \(l.contentType.isEmpty ? "unknown type" : l.contentType)")
         } else {
-            imagesOK += 1
+            rep.ImagesDecoded += 1
         }
     }
-    out += "  stylesheets: \(sheetsOK) of \(r.stylesheets.count); images: \(imagesOK) of \(r.images.count) decoded\n"
-    if !r.fonts.isEmpty {
-        out += "  fonts: \(r.fonts.count) named by @font-face, not fetched: the page registers fonts from local files only\n"
+    for text in r.inlineStyles { rep.Coverage.Add(css.Parse(text)) }
+    for u in r.stylesheets {
+        if let l = r.resources[u], l.ok, let b = l.body { rep.Coverage.Add(css.Parse(string(decoding: b, as: UTF8.self))) }
     }
-    if !failed.isEmpty { out += "failed:\n" + failed.joined(separator: "\n") + "\n" }
-    if !undecodable.isEmpty { out += "not decodable:\n" + undecodable.joined(separator: "\n") + "\n" }
-    return out
+    return rep
+}
+
+/// A fetched page as an archive: the page and every resource, as they
+/// came back.
+func archive(_ r: RemotePage) -> fetch.Archive {
+    var a = fetch.Archive(page: r.url)
+    a.Add(fetch.ArchiveEntry(URL: r.url, Status: r.page.status, ContentType: r.page.contentType, Body: r.page.body ?? []))
+    for (u, l) in r.resources {
+        a.Add(fetch.ArchiveEntry(URL: u, Status: l.status, ContentType: l.contentType, Body: l.body ?? []))
+    }
+    return a
 }

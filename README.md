@@ -18,8 +18,10 @@ and never links a window system.
 Run any program in `cmd/` directly with `vsc run`:
 
 ```bash
-# The browser: an address bar, history, and the web engine's sample pages.
+# The browser: an address bar, history, the web engine's sample pages, and
+# the network (it prints what each site still needs).
 vsc run browser
+vsc run browser -- https://github.com
 
 # Interactive window examples.
 vsc run hello
@@ -58,8 +60,8 @@ func main() async -> int32 {
 
     let view = webview.WebView()
     view.SetBounds(origin: window.Point(0, 0), size: win.Size())
-    try! view.Page.LoadFile("docs/index.html")
-    view.Page.OnNavigate { url in try? view.Page.LoadFile(url); win.RequestFrame() }
+    view.OnLoadFinished { report in win.RequestFrame() }
+    view.Navigate("https://github.com")      // or a file path; links are followed
 
     var pixels = [uint8](repeating: 0, count: int(win.PixelSize().Width) * int(win.PixelSize().Height) * 4)
     win.RequestFrame()
@@ -80,9 +82,11 @@ func main() async -> int32 {
 }
 ```
 
-`WebView` is `@MainActor`, like the window it lives in. The page it
-shows is `view.Page`: loading, styles, layout, forms and selection are
-the `web` repository's, and work the same without a window.
+`WebView` is `@MainActor`, like the window it lives in. It navigates:
+files, and pages from the network fetched with the stylesheets and
+images they refer to, a history, and links followed. The page it shows
+is `view.Page`: styles, layout, forms and selection are the `web`
+repository's, and work the same without a window.
 
 | | |
 | :--- | :--- |
@@ -94,6 +98,10 @@ the `web` repository's, and work the same without a window.
 | `DesiredCursor()` | The window cursor for what the pointer is over. |
 | `ElementAt(_:)` | The element under a point in the window. |
 | `NeedsRepaint()`, `NeedsAnimation()`, `Advance(time:)` | What the host should do next. |
+| `Navigate(_:)`, `Back()`, `Forward()`, `Reload()` | Show an address: http(s) from the network, a path or file: URL from disk, "about:home" the `StartPage`. |
+| `URL`, `IsLoading`, `CanGoBack`, `CanGoForward` | Where the view is. |
+| `OnLoadStarted`, `OnLoadFinished` | A load's start, and its `LoadReport`: what came back, and what the engine couldn't use -- failed requests, images it can't decode, and the CSS it drops (`Text()` for a terminal). |
+| `RecordInto` | A folder each network page is recorded into, for `web/cmd/snapshot --archive`. |
 | `CodeName(_:)` | A key's W3C `KeyboardEvent.code` name. |
 
 ---
