@@ -5,7 +5,6 @@
 package webview
 
 import (
-    "image/format"
     "net/http"
     "time"
     "web/css"
@@ -127,8 +126,9 @@ func fetchPage(_ url: string) async -> RemotePage {
                 if ref.isImport {
                     if !remote.stylesheets.contains(u) { remote.stylesheets.append(u) }
                 } else if isFont(u) {
+                    // Fetched, but for WOFF2, which nothing here unpacks.
                     if !remote.fonts.contains(u) { remote.fonts.append(u) }
-                    continue
+                    if isWoff2(u) { continue }
                 } else if !u.hasPrefix("data:") {
                     if !remote.images.contains(u) { remote.images.append(u) }
                 } else {
@@ -182,6 +182,13 @@ func importTarget(_ params: string) -> string {
     return string(decoding: b[start..<i], as: UTF8.self)
 }
 
+/// Whether a URL names a WOFF2 font, by its extension.
+func isWoff2(_ u: string) -> bool {
+    var path = u
+    if let q = path.firstIndex(of: "?") { path = string(path[..<q]) }
+    return path.lowercased().hasSuffix(".woff2")
+}
+
 /// Whether a URL names a font file, by its extension.
 func isFont(_ u: string) -> bool {
     var path = u
@@ -207,9 +214,11 @@ public struct LoadReport {
     public var StylesheetsLoaded: int
     public var Images: int
     public var ImagesDecoded: int
-    /// Web fonts @font-face names, which aren't fetched: the page
-    /// registers fonts from local files only.
+    /// Web fonts @font-face names; those fetched, and those left out as
+    /// WOFF2, which isn't unpacked yet.
     public var Fonts: int
+    public var FontsLoaded: int = 0
+    public var FontsWoff2: int = 0
     /// "stylesheet URL: why" for each that failed.
     public var Failed: [string]
     /// "URL: content type" for each image nothing here decodes.
@@ -222,7 +231,10 @@ public struct LoadReport {
         var out = "\(URL): \(Status == 0 ? Error : "\(Status)") \(ContentType), \(Bytes / 1024) KB, \(Resources) resources in \(Milliseconds) ms\n"
         out += "  stylesheets: \(StylesheetsLoaded) of \(Stylesheets); images: \(ImagesDecoded) of \(Images) decoded\n"
         out += Coverage.Report()
-        if Fonts > 0 { out += "  fonts: \(Fonts) named by @font-face, not fetched: the page registers fonts from local files only\n" }
+        if Fonts > 0 {
+            out += "  fonts: \(FontsLoaded) of \(Fonts) fetched"
+            out += FontsWoff2 > 0 ? "; \(FontsWoff2) WOFF2, not unpacked yet (compress/brotli)\n" : "\n"
+        }
         if !Failed.isEmpty { out += "failed:\n" + Failed.map { "  " + $0 }.joined(separator: "\n") + "\n" }
         if !Undecodable.isEmpty { out += "not decodable:\n" + Undecodable.map { "  " + $0 }.joined(separator: "\n") + "\n" }
         return out
@@ -230,7 +242,9 @@ public struct LoadReport {
 }
 
 /// The report of a fetched page.
-func report(_ r: RemotePage) -> LoadReport {
+/// undecoded is the images the page couldn't decode (Page.LoadImages):
+/// the report doesn't decode them again to find out.
+func report(_ r: RemotePage, undecoded: [string] = []) -> LoadReport {
     var rep = LoadReport(URL: r.url, Status: r.page.status, ContentType: r.page.contentType, Error: r.page.error,
                          Bytes: r.page.body?.count ?? 0, Resources: r.resources.count, Milliseconds: int(r.elapsed * 1000),
                          Stylesheets: r.stylesheets.count, StylesheetsLoaded: 0, Images: r.images.count, ImagesDecoded: 0,
@@ -243,11 +257,14 @@ func report(_ r: RemotePage) -> LoadReport {
         guard let l = r.resources[u] else { continue }
         if !l.ok {
             rep.Failed.append("image \(u): \(l.status == 0 ? l.error : "\(l.status)")")
-        } else if let b = l.body, format.Decode(b) == nil {
+        } else if undecoded.contains(u) {
             rep.Undecodable.append("\(u): \(l.contentType.isEmpty ? "unknown type" : l.contentType)")
         } else {
             rep.ImagesDecoded += 1
         }
+    }
+    for u in r.fonts {
+        if isWoff2(u) { rep.FontsWoff2 += 1 } else if let l = r.resources[u], l.ok { rep.FontsLoaded += 1 }
     }
     for text in r.inlineStyles { rep.Coverage.Add(css.Parse(text)) }
     for u in r.stylesheets {

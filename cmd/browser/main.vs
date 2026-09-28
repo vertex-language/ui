@@ -180,6 +180,7 @@ func main() async -> int32 {
         browser.status = "Loading \(address)…"
         browser.requestFrame()
     }
+    view.OnNeedsDisplay { browser.requestFrame() }
     view.OnLoadFinished { report in
         if report.Resources > 0 || report.Status != 200 { print(report.Text()) }
         browser.status = ""

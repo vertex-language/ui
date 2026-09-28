@@ -32,6 +32,7 @@ public final class WebView {
     var loading = false
     var onLoadStarted: ((string) -> Void)? = nil
     var onLoadFinished: ((LoadReport) -> Void)? = nil
+    var onNeedsDisplay: (() -> Void)? = nil
     /// Where "about:home" goes, and "" does: a file path or URL.
     public var StartPage: string = ""
     /// A folder each page from the network is recorded into, with what it

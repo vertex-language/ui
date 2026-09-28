@@ -25,6 +25,9 @@ extension WebView {
     /// Called once a page is shown, or has failed, with what came back:
     /// the host redraws, and may print the report.
     public func OnLoadFinished(_ handler: (LoadReport) -> Void) { onLoadFinished = handler }
+    /// Called when the view changed on its own and wants drawing again:
+    /// a page shown before its images, and again as they arrive.
+    public func OnNeedsDisplay(_ handler: () -> Void) { onNeedsDisplay = handler }
 
     /// Shows an address, adding it to the history: http(s) URLs from the
     /// network, file: URLs and paths from disk, and "about:home" (or "")
@@ -102,11 +105,10 @@ extension WebView {
     func loadRemote(_ target: string, _ generation: int) async {
         let remote = await fetchPage(target)
         if generation != loads { return }
-        loading = false
-        let rep = report(remote)
         if let dir = RecordInto {
             try? archive(remote).Write(to: dir)
         }
+        var undecoded: [string] = []
         if remote.page.ok, let body = remote.page.body {
             url = remote.url
             if position >= 0 && position < history.count { history[position] = remote.url }
@@ -116,11 +118,21 @@ extension WebView {
                 if let l = resources[u], l.ok { return l.body }
                 return nil
             })
+            // The page shows first; its images decode on the thread pool
+            // meanwhile, off the main thread, and it draws again with them.
+            Page.Configuration.DefersImages = true
             Page.LoadBytes(body, contentType: remote.page.contentType, baseURL: remote.url)
+            if let h = onNeedsDisplay { h() }
+            undecoded = await Page.LoadImages()
+            if generation != loads { return }
+            if let h = onNeedsDisplay { h() }
         } else {
             let why = remote.page.status == 0 ? remote.page.error : "the server answered \(remote.page.status)"
             showMessage("Can't load the page", "<code>\(target)</code>: \(why)")
         }
+        // Loading ends as a browser's load event does: once the images are in.
+        loading = false
+        let rep = report(remote, undecoded: undecoded)
         if let h = onLoadFinished { h(rep) }
     }
 
