@@ -20,7 +20,7 @@
 package component
 
 import (
-    "reactive"
+    "ui/state"
     "web/dom"
 )
 
@@ -58,7 +58,7 @@ public final class Node: Renderable {
     /// or an email.
     public func Html() -> string {
         if isText { return escapeText(Text) }
-        if let f = live { return reactive.Untracked { f() }.map { $0.Html() }.joined() }
+        if let f = live { return state.Untracked { f() }.map { $0.Html() }.joined() }
         if let l = list { return l.snapshot().map { $0.Html() }.joined() }
         if Tag.isEmpty { return Children.map { $0.Html() }.joined() }
         var s = "<" + Tag
@@ -74,7 +74,7 @@ public final class Node: Renderable {
     func attributesNow() -> [(string, string)] {
         var out = attrs
         for (name, f) in liveAttrs {
-            if let v = reactive.Untracked({ f() }) { out.append((name, v)) }
+            if let v = state.Untracked({ f() }) { out.append((name, v)) }
         }
         if let c = classNow() { out.append(("class", c)) }
         if let st = styleNow() { out.append(("style", st)) }
@@ -155,7 +155,7 @@ func liveNode(_ f: () -> [Node]) -> Node {
 /// what its body read does not run it again -- its own live parts follow
 /// what they read.
 public func Component<T>(_ f: () -> T) -> T {
-    return reactive.Untracked(f)
+    return state.Untracked(f)
 }
 
 // MARK: - Attributes
@@ -194,8 +194,8 @@ public struct Attribute {
     public static func Value<V>(_ name: string, _ value: V) -> Attribute {
         // vsc does not yet prefer non-generic overloads, so a signal is
         // found here.
-        if let s = value as? reactive.Signal<string> { return bindText(name, s) }
-        if let s = value as? reactive.Signal<bool> { return bindFlag(name, s) }
+        if let s = value as? state.Signal<string> { return bindText(name, s) }
+        if let s = value as? state.Signal<bool> { return bindFlag(name, s) }
         if let b = value as? bool { return Attribute(.flag(name, b)) }
         return Attribute(.text(name, "\(value)"))
     }
@@ -203,9 +203,9 @@ public struct Attribute {
     /// `name={expr}`, live: the attribute follows expr. `value={$draft}`
     /// is bound both ways.
     public static func Live<V>(_ name: string, _ f: () -> V) -> Attribute {
-        let first = reactive.Untracked(f)
-        if let s = first as? reactive.Signal<string> { return bindText(name, s) }
-        if let s = first as? reactive.Signal<bool> { return bindFlag(name, s) }
+        let first = state.Untracked(f)
+        if let s = first as? state.Signal<string> { return bindText(name, s) }
+        if let s = first as? state.Signal<bool> { return bindFlag(name, s) }
         return Attribute(.liveText(name, { attributeText(f()) }))
     }
 
@@ -260,7 +260,7 @@ func attributeText<V>(_ v: V) -> string? {
     return "\(v)"
 }
 
-func bindText(_ name: string, _ signal: reactive.Signal<string>) -> Attribute {
+func bindText(_ name: string, _ signal: state.Signal<string>) -> Attribute {
     let s = signal
     return Attribute(.bound(name, { s.Value }, "input", { e in
         if let i = e as? dom.InputEvent {
@@ -270,7 +270,7 @@ func bindText(_ name: string, _ signal: reactive.Signal<string>) -> Attribute {
     }))
 }
 
-func bindFlag(_ name: string, _ signal: reactive.Signal<bool>) -> Attribute {
+func bindFlag(_ name: string, _ signal: state.Signal<bool>) -> Attribute {
     let s = signal
     return Attribute(.bound(name, { s.Value ? "" : nil }, "change", { e in
         // The page has toggled the box; the signal follows it.
@@ -337,9 +337,9 @@ public func Fragment(_ children: [any Renderable]) -> Node {
 /// as its key is in the list, moved where the key moves. A row is given
 /// its item as a Readable, which follows the item when it changes under
 /// the same key. Without a key, an item's index is its key.
-public func For<T>(each: () -> [T], key: ((T) -> int)? = nil, children: (reactive.Readable<T>) -> Node) -> Node {
+public func For<T>(each: () -> [T], key: ((T) -> int)? = nil, children: (state.Readable<T>) -> Node) -> Node {
     var items: [T] = []
-    var cells: [int: reactive.Signal<T>] = [:]
+    var cells: [int: state.Signal<T>] = [:]
     // Made by a non-generic function: vsc cannot yet reach an internal
     // class's metadata from generic code specialized in another module.
     return listNode(
@@ -352,9 +352,9 @@ public func For<T>(each: () -> [T], key: ((T) -> int)? = nil, children: (reactiv
             return i
         },
         make: { i, k in
-            let cell = reactive.Signal<T>(items[i])
+            let cell = state.Signal<T>(items[i])
             cells[k] = cell
-            return children(reactive.Readable(cell))
+            return children(state.Readable(cell))
         },
         update: { i, k in
             if var c = cells[k] { c.Value = items[i] }
@@ -392,7 +392,7 @@ final class ListSpec {
     /// Each item's row, made fresh: for RenderHTML.
     func snapshot() -> [Node] {
         var out: [Node] = []
-        reactive.Untracked {
+        state.Untracked {
             let n = self.count()
             var i = 0
             while i < n {

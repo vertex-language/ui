@@ -9,7 +9,7 @@ import (
     "image"
     "image/draw"
     "image/png"
-    "reactive"
+    "ui/state"
     "ui/component"
     "ui/kit"
     "web"
@@ -29,7 +29,7 @@ func check(_ ok: bool, _ what: string) {
 }
 
 func Counter(start: int) -> component.Node {
-    @reactive.State var count = start
+    @state.State var count = start
     return (
         <div class="counter">
             <h1>Clicked {count} times</h1>
@@ -40,7 +40,7 @@ func Counter(start: int) -> component.Node {
 }
 
 func Greeter() -> component.Node {
-    @reactive.State var name = ""
+    @state.State var name = ""
     return (
         <form onSubmit={e in e.PreventDefault()}>
             <input id="name" placeholder="Your name" value={$name} />
@@ -56,10 +56,10 @@ struct Todo {
 }
 
 func Tasks() -> component.Node {
-    @reactive.State var todos: [Todo] = []
-    @reactive.State var draft = ""
-    @reactive.State var onlyDone = false
-    @reactive.State var nextID = 1
+    @state.State var todos: [Todo] = []
+    @state.State var draft = ""
+    @state.State var onlyDone = false
+    @state.State var nextID = 1
     return (
         <section id="tasks">
             <form onSubmit={e in
@@ -89,9 +89,9 @@ var bodyRuns = 0
 
 func Ticker() -> component.Node {
     bodyRuns += 1
-    @reactive.State var n = 0
-    @reactive.State var show = true
-    @reactive.State var items: [int] = [1, 2]
+    @state.State var n = 0
+    @state.State var show = true
+    @state.State var items: [int] = [1, 2]
     return (
         <div>
             <button id="tick" onClick={n += 1}>tick</button>
@@ -136,7 +136,7 @@ func click(_ page: web.Page, _ selector: string) {
         check(false, "\(selector) is on the page")
         return
     }
-    reactive.Batch {
+    state.Batch {
         _ = page.Handle(.pointerDown(web.Pointer(p)))
         _ = page.Handle(.pointerUp(web.Pointer(p)))
     }
@@ -171,7 +171,7 @@ func main() -> int32 {
 
     click(page, "#name")
     let field = page.QuerySelector("#name")!
-    reactive.Batch { _ = page.Handle(.text("Ada")) }
+    state.Batch { _ = page.Handle(.text("Ada")) }
     check(page.QuerySelector("#hello")!.InnerText() == "Hello, Ada!", "typing writes the bound state, and the greeting follows (got '\(page.QuerySelector("#hello")!.InnerText())')")
     check(page.QuerySelector("#name")!.Id == field.Id && page.FocusedElement?.Id == field.Id, "the field keeps its element and its focus while typing")
     snapshot(page, "after.png")
@@ -182,10 +182,10 @@ func main() -> int32 {
     tp.LoadHTML("<!doctype html><html><head><style>body { margin: 0; font: 16px system-ui } li { padding: 4px }</style></head><body></body></html>")
     _ = component.Mount({ Tasks() }, into: tp.Document!, at: tp.Document!.Tree.ElementsByTagName("body").first!)
     click(tp, "#draft")
-    reactive.Batch { _ = tp.Handle(.text("milk")) }
-    reactive.Batch { _ = tp.Handle(.keyDown(web.Key(Key: "Enter", Code: "Enter"))) }
-    reactive.Batch { _ = tp.Handle(.text("eggs")) }
-    reactive.Batch { _ = tp.Handle(.keyDown(web.Key(Key: "Enter", Code: "Enter"))) }
+    state.Batch { _ = tp.Handle(.text("milk")) }
+    state.Batch { _ = tp.Handle(.keyDown(web.Key(Key: "Enter", Code: "Enter"))) }
+    state.Batch { _ = tp.Handle(.text("eggs")) }
+    state.Batch { _ = tp.Handle(.keyDown(web.Key(Key: "Enter", Code: "Enter"))) }
     let items = tp.QuerySelectorAll("li")
     check(items.count == 2 && items[0].InnerText() == "milk" && items[1].InnerText() == "eggs", "Enter in the field submits the form, and its handler adds a task (got \(items.count))")
     check(tp.ValueOf(tp.QuerySelector("#draft")!) == "", "the handler clears the draft, and the field shows it cleared (got '\(tp.ValueOf(tp.QuerySelector("#draft")!))')")

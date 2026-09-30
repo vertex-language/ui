@@ -22,7 +22,7 @@ import (
     "image"
     "image/draw"
     "image/png"
-    "reactive"
+    "ui/state"
     "ui/component"
     "web"
     "web/cascade"
@@ -106,7 +106,7 @@ public final class Screen {
     @discardableResult
     public func Click(_ found: Found) -> bool {
         guard let n = found.First, let p = pointOn(n) else { return false }
-        reactive.Batch {
+        state.Batch {
             _ = self.Page.Handle(.pointerDown(web.Pointer(p)))
             _ = self.Page.Handle(.pointerUp(web.Pointer(p)))
         }
@@ -116,14 +116,14 @@ public final class Screen {
     /// Clicks a field to focus it, and types text into it.
     public func Type(into found: Found, _ text: string) {
         _ = Click(found)
-        reactive.Batch { _ = self.Page.Handle(.text(text)) }
+        state.Batch { _ = self.Page.Handle(.text(text)) }
     }
 
     /// Presses a key where the focus is: "Enter", "Tab", "Backspace",
     /// "Escape", "ArrowDown", or a character.
     public func Press(_ key: string) {
         let code = key.count == 1 ? "Key" + key.uppercased() : key
-        reactive.Batch { _ = self.Page.Handle(.keyDown(web.Key(Key: key, Code: code))) }
+        state.Batch { _ = self.Page.Handle(.keyDown(web.Key(Key: key, Code: code))) }
     }
 
     /// A point the page hit-tests to the element or something in it.

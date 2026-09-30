@@ -32,6 +32,7 @@ vsc run vsx-demo
 
 # The checks.
 vsc run check-webview
+vsc run check-state
 vsc run check-component
 vsc run check-componenttest
 vsc run lifecycle
@@ -45,6 +46,7 @@ vsc run lifecycle
 | :--- | :--- | :--- |
 | **`ui/window`** | A native window: creation, an async event queue, a frame clock, a pixel surface, cursors, the clipboard. | `window.cpp` (`ui.window`): Cocoa in `window_darwin.mm`, NativeActivity in `window_android.cpp` |
 | **`ui/webview`** | A `web.Page` in a window: the part of the window it covers, the window's events turned into the page's input, the page's cursor, and the system clipboard. | none |
+| **`ui/state`** | Signals, computed values, effects and `@State`: the state a `.vsx` app keeps. It imports nothing, so code without a window can use it. | none |
 | **`ui/component`** | What `.vsx` markup lowers to (`Element`, `Attribute`, `Fragment`, `For`, `Node`), and `Mount`, which puts a root into a `dom.Document` and patches it when a signal it read changes. | none |
 | **`ui/app`** | `app.Run`: a window whose page holds a mounted `.vsx` root, with events reaching its handlers. | none |
 | **`ui/componenttest`** | Headless tests of components: queries by role, label and text, input through the page, computed styles, pixel goldens. | none |
@@ -55,21 +57,21 @@ vsc run lifecycle
 ## A .vsx app
 
 Markup in a `.vsx` file is Vertex with JSX (the design is `proposed_vsx.md`).
-A component is a function; state is `@reactive.State`; a handler is the
+A component is a function; state is `@state.State`; a handler is the
 braces in an `on…` attribute.
 
 ```vsx
 package main
 
 import (
-    "reactive"
+    "ui/state"
     "ui/app"
     "ui/component"
     "web/dom"
 )
 
 func Counter(start: int = 0) -> Node {
-    @reactive.State var count = start
+    @state.State var count = start
     return <button onClick={count += 1}>Clicked {count} times</button>
 }
 

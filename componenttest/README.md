@@ -18,7 +18,7 @@ check(screen.Pixels().Matches(golden: "testdata/tasks.png"), "pixels")
 | :--- | :--- |
 | `Mount(width:height:css:) { root }` | A `Screen`: the root mounted in a page, with its packages' `.vss` styles. |
 | `ByRole`, `ByText`, `ByLabel`, `ByPlaceholder`, `ByTestId`, `Query` | What a query finds (`Found`): `Count`, `First`, `Text`, `Value`, `Style`, `Attribute`, `HasClass`. A role is the `role` attribute or the one the tag implies, as an assistive technology reads it. |
-| `Click`, `Type(into:)`, `Press` | Input through the page's own handling, each in a `reactive.Batch`. |
+| `Click`, `Type(into:)`, `Press` | Input through the page's own handling, each in a `state.Batch`. |
 | `Pixels()` | `At(x, y)`, `Write(path)`, and `Matches(golden:)`: a golden that does not exist yet is recorded, and later runs are held to it. |
 
 `vsc run check-componenttest` is its own check.

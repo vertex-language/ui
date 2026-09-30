@@ -24,7 +24,7 @@ rewrites each element as calls of this package (`proposed_vsx.md` §9.2):
 | `Sheet`, `SheetsOf` | A package's compiled `.vss`, which the compiler generates as `__vssSheet` and stamps on the package's elements; the sheets a tree uses, in order. |
 
 Mount runs the root once. Each live part -- `{count}`, `class:on={on}`,
-`title={x}` -- is its own binding (a `reactive.Effect`), which updates its
+`title={x}` -- is its own binding (a `state.Effect`), which updates its
 own text or attribute when a signal it read changes. Components run once,
 untracked (`Component`), so `@State` in a component is made once. A live
 region that holds components makes them again when it changes, and

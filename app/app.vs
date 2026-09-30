@@ -18,7 +18,7 @@ import (
     "fs"
     "image"
     "image/png"
-    "reactive"
+    "ui/state"
     "ui/component"
     "ui/webview"
     "ui/window"
@@ -117,7 +117,7 @@ final class Host {
         }
         // The event's handlers write state; the root renders again once,
         // after them.
-        reactive.Batch { _ = self.view.Handle(event) }
+        state.Batch { _ = self.view.Handle(event) }
         let c = view.DesiredCursor()
         if c != cursor {
             cursor = c

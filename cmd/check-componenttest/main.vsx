@@ -4,7 +4,7 @@ package main
 
 import (
     "image/draw"
-    "reactive"
+    "ui/state"
     "ui/component"
     "ui/componenttest"
     "web/dom"
@@ -28,9 +28,9 @@ struct Todo {
 }
 
 func App() -> Node {
-    @reactive.State var todos: [Todo] = []
-    @reactive.State var draft = ""
-    @reactive.State var nextID = 1
+    @state.State var todos: [Todo] = []
+    @state.State var draft = ""
+    @state.State var nextID = 1
     return (
         <main>
             <h1>Tasks</h1>

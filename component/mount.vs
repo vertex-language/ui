@@ -1,7 +1,7 @@
 package component
 
 import (
-    "reactive"
+    "ui/state"
     "web/dom"
     "web/html"
 )
@@ -15,7 +15,7 @@ public final class Mounted {
     let parent: html.Node
     let styles: (([string]) -> void)?
     /// What the root made: every binding, and every list's rows.
-    let owner = reactive.Owner()
+    let owner = state.Owner()
     var used: [Sheet] = []
     var given: [string] = []
     /// How many times the root has run: once.
@@ -80,7 +80,7 @@ public final class Mounted {
 
     /// A binding: an effect owned by what is being made, counted.
     func bind(_ f: () -> void) {
-        _ = reactive.Effect {
+        _ = state.Effect {
             self.Updates += 1
             f()
         }
@@ -104,7 +104,7 @@ public final class Mounted {
         doc.InsertBefore(parent, end, before)
         bind {
             let nodes = f()
-            reactive.Untracked {
+            state.Untracked {
                 guard let p = end.Parent else { return }
                 let current = self.between(start, end)
                 if nodes.count == 1 && nodes[0].isText && current.count == 1 && current[0].Kind == html.NodeKind.text {
@@ -127,12 +127,12 @@ public final class Mounted {
         doc.InsertBefore(parent, start, before)
         doc.InsertBefore(parent, end, before)
         let rows = RowTable()
-        reactive.OnCleanup {
+        state.OnCleanup {
             for r in rows.rows { r.owner.Dispose() }
         }
         bind {
             let count = spec.count()
-            reactive.Untracked {
+            state.Untracked {
                 guard let p = end.Parent else { return }
                 var keys: [int] = []
                 var i = 0
@@ -176,7 +176,7 @@ public final class Mounted {
                         let r = Row(key: k, start: self.doc.CreateTextNode(""), end: self.doc.CreateTextNode(""))
                         self.doc.InsertBefore(p, r.start, cursor)
                         self.doc.InsertBefore(p, r.end, cursor)
-                        reactive.WithOwner(r.owner) {
+                        state.WithOwner(r.owner) {
                             let node = spec.make(i, k)
                             self.build(node, into: p, before: r.end)
                         }
@@ -242,7 +242,7 @@ final class Row {
     let key: int
     let start: html.Node
     let end: html.Node
-    let owner = reactive.Owner()
+    let owner = state.Owner()
 
     init(key: int, start: html.Node, end: html.Node) {
         self.key = key
@@ -262,9 +262,9 @@ final class RowTable {
 /// whenever they change: a page sets them (web.Page.SetStyleSheets).
 public func Mount(_ root: () -> Node, into doc: dom.Document, at parent: html.Node, styles: (([string]) -> void)? = nil) -> Mounted {
     let m = Mounted(doc: doc, parent: parent, styles: styles)
-    reactive.WithOwner(m.owner) {
+    state.WithOwner(m.owner) {
         m.Renders += 1
-        let nodes = reactive.Untracked { root().Nodes() }
+        let nodes = state.Untracked { root().Nodes() }
         for n in nodes { m.build(n, into: parent, before: nil) }
     }
     m.giveSheets()
