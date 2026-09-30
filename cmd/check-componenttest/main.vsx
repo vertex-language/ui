@@ -1,0 +1,96 @@
+// ui/componenttest checked on a small task app, as proposed_vsx.md §11
+// writes a component's test.
+package main
+
+import (
+    "image/draw"
+    "reactive"
+    "ui/component"
+    "ui/componenttest"
+    "web/dom"
+)
+
+var failures = 0
+
+func check(_ ok: bool, _ what: string) {
+    if ok {
+        print("ok    \(what)")
+    } else {
+        print("FAIL  \(what)")
+        failures += 1
+    }
+}
+
+struct Todo {
+    let ID: int
+    var Title: string
+    var Done: bool
+}
+
+func App() -> Node {
+    @reactive.State var todos: [Todo] = []
+    @reactive.State var draft = ""
+    @reactive.State var nextID = 1
+    return (
+        <main>
+            <h1>Tasks</h1>
+            <form onSubmit={e in
+                e.PreventDefault()
+                if !draft.isEmpty {
+                    todos.append(Todo(ID: nextID, Title: draft, Done: false))
+                    nextID += 1
+                    draft = ""
+                }
+            }>
+                <label>New task <input placeholder="What needs doing?" value={$draft} /></label>
+            </form>
+            <ul>
+                <For each={todos} key={t in t.ID}>
+                    {t in
+                        <li class:done={t.Done}>
+                            <input type="checkbox" aria-label={"done: \(t.Title)"} checked={t.Done} onChange={
+                                for i in 0..<todos.count where todos[i].ID == t.ID { todos[i].Done = !todos[i].Done }
+                            } />
+                            <span>{t.Title}</span>
+                        </li>
+                    }
+                </For>
+            </ul>
+            <p data-testid="left">{todos.filter { !$0.Done }.count} left</p>
+        </main>
+    )
+}
+
+@MainActor
+func main() -> int32 {
+    let css = "li.done span { text-decoration: line-through; color: rgb(150, 150, 150); }"
+    let screen = componenttest.Mount(width: 420, height: 300, css: css) { <App /> }
+
+    check(screen.ByRole("heading").Text == "Tasks", "a heading is found by its role")
+    check(screen.ByLabel("New task").First?.TagName == "input", "a field by the label around it")
+    screen.Type(into: screen.ByPlaceholder("What needs doing?"), "buy milk")
+    screen.Press("Enter")
+    screen.Type(into: screen.ByPlaceholder("What needs doing?"), "walk")
+    screen.Press("Enter")
+    check(screen.ByRole("listitem").Count == 2, "typing and Enter add items (\(screen.ByRole("listitem").Count))")
+    check(screen.ByPlaceholder("What needs doing?").Value == "", "and clear the field")
+    check(screen.ByTestId("left").Text == "2 left", "a live count follows (\(screen.ByTestId("left").Text))")
+
+    screen.Click(screen.ByLabel("done: buy milk"))
+    check(screen.ByText("buy milk").Style?.Color == draw.Color(150, 150, 150), "a done item's text takes the done style")
+    check(screen.ByTestId("left").Text == "1 left", "and the count follows it")
+    check(screen.ByRole("checkbox").Count == 2 && screen.ByRole("listitem").Nodes[0].HasClass("done"), "the row is the same, marked done")
+
+    let px = screen.Pixels()
+    check(px.At(2, 2) == draw.Color(255, 255, 255), "the page is drawn")
+    // Recorded on the first run (delete the file to record it again);
+    // run from ui/, as `vsc run check-componenttest` is.
+    check(px.Matches(golden: "cmd/check-componenttest/testdata/tasks.png"), "the pixels are the golden image's")
+
+    if failures > 0 {
+        print("\(failures) FAILED")
+        return 1
+    }
+    print("ALL COMPONENTTEST CHECKS PASSED")
+    return 0
+}

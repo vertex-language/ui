@@ -44,14 +44,18 @@ func Tasks() -> Node {
     @reactive.State var filter = Filter.all
     @reactive.State var nextID = 3
 
-    let visible = todos.filter { t in
-        switch filter {
-        case .all: return true
-        case .active: return !t.Done
-        case .done: return t.Done
+    // Read inside braces, so what shows follows todos and filter: the
+    // component itself runs once.
+    let visible = {
+        todos.filter { t in
+            switch filter {
+            case .all: return true
+            case .active: return !t.Done
+            case .done: return t.Done
+            }
         }
     }
-    let left = todos.filter { !$0.Done }.count
+    let left = { todos.filter { !$0.Done }.count }
 
     return (
         <section class="card">
@@ -67,7 +71,7 @@ func Tasks() -> Node {
                 <input placeholder="What needs doing? (Enter to add)" value={$draft} />
             </form>
             <ul>
-                <For each={visible} key={t in t.ID}>
+                <For each={visible()} key={t in t.ID}>
                     {t in
                         <li class:done={t.Done} onClick={
                             for i in 0..<todos.count where todos[i].ID == t.ID { todos[i].Done = !todos[i].Done }
@@ -78,7 +82,7 @@ func Tasks() -> Node {
                 </For>
             </ul>
             <div class="row small">
-                <span>{left} left</span>
+                <span>{left()} left</span>
                 <button class:on={filter == .all} onClick={filter = .all}>All</button>
                 <button class:on={filter == .active} onClick={filter = .active}>Active</button>
                 <button class:on={filter == .done} onClick={filter = .done}>Done</button>

@@ -33,6 +33,7 @@ vsc run vsx-demo
 # The checks.
 vsc run check-webview
 vsc run check-component
+vsc run check-componenttest
 vsc run lifecycle
 ```
 
@@ -46,6 +47,8 @@ vsc run lifecycle
 | **`ui/webview`** | A `web.Page` in a window: the part of the window it covers, the window's events turned into the page's input, the page's cursor, and the system clipboard. | none |
 | **`ui/component`** | What `.vsx` markup lowers to (`Element`, `Attribute`, `Fragment`, `For`, `Node`), and `Mount`, which puts a root into a `dom.Document` and patches it when a signal it read changes. | none |
 | **`ui/app`** | `app.Run`: a window whose page holds a mounted `.vsx` root, with events reaching its handlers. | none |
+| **`ui/componenttest`** | Headless tests of components: queries by role, label and text, input through the page, computed styles, pixel goldens. | none |
+| **`ui/kit`** | A few styled components, and the example of a library with `.vss` styles and tokens. | none |
 
 ---
 

@@ -85,6 +85,25 @@ func Tasks() -> component.Node {
     )
 }
 
+var bodyRuns = 0
+
+func Ticker() -> component.Node {
+    bodyRuns += 1
+    @reactive.State var n = 0
+    @reactive.State var show = true
+    @reactive.State var items: [int] = [1, 2]
+    return (
+        <div>
+            <button id="tick" onClick={n += 1}>tick</button>
+            <button id="toggle" onClick={show = !show}>toggle</button>
+            <button id="prepend" onClick={items = [items.count + 1] + items}>prepend</button>
+            <p id="n">{n}</p>
+            {if show { <p id="shown">{n * 10}</p> }}
+            <ul><For each={items} key={i in i}>{i in <li id={"i\(i.Value)"}>{i.Value}</li>}</For></ul>
+        </div>
+    )
+}
+
 @MainActor
 func snapshot(_ page: web.Page, _ name: string) {
     let args = CommandLine.arguments
@@ -178,7 +197,27 @@ func main() -> int32 {
     click(tp, "#clear")
     let left = tp.QuerySelectorAll("li")
     check(left.count == 1 && left[0].InnerText() == "eggs", "clearing done tasks leaves the rest")
-    check(mounted.Renders >= 3, "each change rendered the root again (\(mounted.Renders) renders)")
+    check(mounted.Renders == 1, "the root ran once; its bindings did the rest (\(mounted.Updates) binding runs)")
+
+    // Fine-grained: the body runs once, a change runs only what read it.
+    let fp = web.Page()
+    fp.SetViewportSize(draw.Size(480, 320))
+    fp.LoadHTML("<!doctype html><html><head></head><body></body></html>")
+    let fm = component.Mount({ Ticker() }, into: fp.Document!, at: fp.Document!.Tree.ElementsByTagName("body").first!)
+    let before = fm.Updates
+    click(fp, "#tick")
+    click(fp, "#tick")
+    check(bodyRuns == 1 && fp.QuerySelector("#n")!.InnerText() == "2", "two clicks change the text; the component's body ran once (\(bodyRuns))")
+    check(fm.Updates - before == 4, "each click ran the two bindings that read n, and no others (\(fm.Updates - before))")
+    check(fp.QuerySelector("#shown")!.InnerText() == "20", "a branch's own bindings follow too")
+    click(fp, "#toggle")
+    let hidden = fm.Updates
+    click(fp, "#tick")
+    check(fp.QuerySelector("#shown") == nil && fm.Updates - hidden == 1, "a branch switched off is gone, and its bindings with it")
+    let two = fp.QuerySelector("#i2")!
+    click(fp, "#prepend")
+    let ids = fp.QuerySelectorAll("li").map { $0.InnerText() }
+    check(ids == ["3", "1", "2"] && fp.QuerySelector("#i2")!.Id == two.Id, "a keyed row keeps its element when an item comes before it (\(ids))")
 
     // Styles: package main's (check.vss) and the kit's (ui/kit/kit.vss).
     let sp = web.Page()

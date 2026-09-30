@@ -1,21 +1,22 @@
 // Package component is what markup in a .vsx file lowers to, and what
 // puts it in a document (proposed_vsx.md §9.2, §10).
 //
-//     <p class="x" onClick={n += 1}>Hi {name}</p>
+//     <p class="x" class:on={on} onClick={n += 1}>Hi {name}</p>
 //
 // is checked and lowered as
 //
 //     component.Element("p", [
 //         component.Attribute.Static("class", "x"),
+//         component.Attribute.LiveClass("on") { on },
 //         component.Attribute.On("click", dom.MouseEvent.self, { _ in n += 1 }),
-//     ], ["Hi ", name])
+//     ], ["Hi ", component.Live { name }])
 //
-// Element and Fragment make Nodes: a description of elements, text and
-// handlers. Mount puts a root's nodes into a dom.Document, and runs the
-// root again whenever a signal it read changes, patching the document in
-// place -- an element stays the element it was, so focus, the caret and
-// the scroll position stay too. That is the check form's runtime; the
-// emit form (phase two) will bind each hole to its own signal instead.
+// Element and Fragment make Nodes, a description; Mount makes them real,
+// once. What the markup wrote in braces -- `{name}`, `class:on={on}` -- is
+// live: Mount runs it as its own effect, which updates its own text or
+// attribute when a signal it read changes, and nothing else. Components
+// run once, untracked (`Component`), so a component's body is never run
+// again by a change it read; `@State` in it is made once.
 package component
 
 import (
@@ -23,8 +24,8 @@ import (
     "web/dom"
 )
 
-/// What an element, a text or a fragment is: a description, which Mount
-/// makes real.
+/// What an element, a text, a fragment, a live region or a keyed list is:
+/// a description, which Mount makes real.
 public final class Node: Renderable {
     public internal(set) var Tag: string = ""
     public internal(set) var Text: string = ""
@@ -32,40 +33,67 @@ public final class Node: Renderable {
     var attrs: [(string, string)] = []
     var classes: [string] = []
     var styles: [(string, string)] = []
+    /// Live attributes: the value, or nil for none.
+    var liveAttrs: [(string, () -> string?)] = []
+    var liveClasses: [(string, () -> bool)] = []
+    var liveStyles: [(string, () -> string)] = []
     var handlers: [(string, (dom.Event) -> void)] = []
     /// The stylesheet of the package whose markup made the element.
     var sheet: Sheet? = nil
     public internal(set) var Children: [Node] = []
+    /// A live region: the nodes it is, made again when what it read changes.
+    var live: (() -> [Node])? = nil
+    /// A keyed list (For).
+    var list: ListSpec? = nil
 
     init() {}
 
     public func Nodes() -> [Node] {
         // A fragment is its children.
-        if Tag.isEmpty && !isText { return Children }
+        if Tag.isEmpty && !isText && live == nil && list == nil { return Children }
         return [self]
     }
 
-    /// The node as HTML: what RenderHTML writes for a report or an email.
+    /// The node as HTML, as it is now: what RenderHTML writes for a report
+    /// or an email.
     public func Html() -> string {
         if isText { return escapeText(Text) }
+        if let f = live { return reactive.Untracked { f() }.map { $0.Html() }.joined() }
+        if let l = list { return l.snapshot().map { $0.Html() }.joined() }
         if Tag.isEmpty { return Children.map { $0.Html() }.joined() }
         var s = "<" + Tag
-        for (n, v) in attributes() { s += v.isEmpty && booleanAttribute(n) ? " \(n)" : " \(n)=\"\(escapeText(v))\"" }
+        for (n, v) in attributesNow() { s += v.isEmpty && booleanAttribute(n) ? " \(n)" : " \(n)=\"\(escapeText(v))\"" }
         s += ">"
         if voidElement(Tag) { return s }
         for c in Children { s += c.Html() }
         return s + "</" + Tag + ">"
     }
 
-    /// The attributes the element is written with: its own, then its
-    /// classes and styles gathered.
-    func attributes() -> [(string, string)] {
+    /// The element's attributes as they are now: its own, its live ones,
+    /// then its classes and styles gathered.
+    func attributesNow() -> [(string, string)] {
         var out = attrs
-        if !classes.isEmpty { out.append(("class", classes.joined(separator: " "))) }
-        if !styles.isEmpty {
-            out.append(("style", styles.map { $0.0.isEmpty ? $0.1 : "\($0.0): \($0.1)" }.joined(separator: "; ")))
+        for (name, f) in liveAttrs {
+            if let v = reactive.Untracked({ f() }) { out.append((name, v)) }
         }
+        if let c = classNow() { out.append(("class", c)) }
+        if let st = styleNow() { out.append(("style", st)) }
         return out
+    }
+
+    /// The class attribute: the static classes, and the live ones on.
+    func classNow() -> string? {
+        var names = classes
+        for (name, on) in liveClasses where on() { names.append(name) }
+        return names.isEmpty ? nil : names.joined(separator: " ")
+    }
+
+    /// The style attribute: the static declarations, then the live ones.
+    func styleNow() -> string? {
+        var parts: [string] = []
+        for (p, v) in styles { parts.append(p.isEmpty ? v : "\(p): \(v)") }
+        for (p, f) in liveStyles { parts.append("\(p): \(f())") }
+        return parts.isEmpty ? nil : parts.joined(separator: "; ")
     }
 }
 
@@ -108,6 +136,30 @@ extension Optional: Renderable where Wrapped: Renderable {
 /// one fragment.
 public typealias Children = () -> Node
 
+// MARK: - Live parts
+
+/// `{expr}` among an element's children: a region Mount keeps equal to
+/// what expr is, running it again -- and only it -- when a signal it read
+/// changes.
+public func Live<V: Renderable>(_ f: () -> V) -> Node {
+    return liveNode({ f().Nodes() })
+}
+
+func liveNode(_ f: () -> [Node]) -> Node {
+    let n = Node()
+    n.live = f
+    return n
+}
+
+/// A component's call, `<Card …/>`: run once, untracked, so a change to
+/// what its body read does not run it again -- its own live parts follow
+/// what they read.
+public func Component<T>(_ f: () -> T) -> T {
+    return reactive.Untracked(f)
+}
+
+// MARK: - Attributes
+
 /// How an attribute is given.
 public enum AttributeKind {
     case text(string, string)
@@ -115,9 +167,12 @@ public enum AttributeKind {
     case classFlag(string, bool)
     case style(string, string)
     case handler(string, (dom.Event) -> void)
-    /// An attribute bound both ways: its value, and the event and handler
-    /// that write what the user did back.
-    case bound(string, string, bool, string, (dom.Event) -> void)
+    case liveText(string, () -> string?)
+    case liveClass(string, () -> bool)
+    case liveStyle(string, () -> string)
+    /// An attribute bound both ways: its live value, and the event and
+    /// handler that write what the user did back.
+    case bound(string, () -> string?, string, (dom.Event) -> void)
     case spread([string: string])
     case sheet(Sheet)
     case none
@@ -134,25 +189,24 @@ public struct Attribute {
         return Attribute(.text(name, value))
     }
 
-    /// `name={value}`: a Bool is the attribute's presence, anything else
-    /// its text.
+    /// `name={value}`, taken once: a Bool is the attribute's presence,
+    /// anything else its text; a signal is bound both ways.
     public static func Value<V>(_ name: string, _ value: V) -> Attribute {
-        // vsc does not yet prefer the non-generic overloads below for a
-        // signal, so a signal is found here too.
+        // vsc does not yet prefer non-generic overloads, so a signal is
+        // found here.
         if let s = value as? reactive.Signal<string> { return bindText(name, s) }
         if let s = value as? reactive.Signal<bool> { return bindFlag(name, s) }
         if let b = value as? bool { return Attribute(.flag(name, b)) }
         return Attribute(.text(name, "\(value)"))
     }
 
-    /// `name={$signal}`: bound both ways. The attribute follows the
-    /// signal, and what the user types or checks is written back.
-    public static func Value(_ name: string, _ signal: reactive.Signal<string>) -> Attribute {
-        return bindText(name, signal)
-    }
-
-    public static func Value(_ name: string, _ signal: reactive.Signal<bool>) -> Attribute {
-        return bindFlag(name, signal)
+    /// `name={expr}`, live: the attribute follows expr. `value={$draft}`
+    /// is bound both ways.
+    public static func Live<V>(_ name: string, _ f: () -> V) -> Attribute {
+        let first = reactive.Untracked(f)
+        if let s = first as? reactive.Signal<string> { return bindText(name, s) }
+        if let s = first as? reactive.Signal<bool> { return bindFlag(name, s) }
+        return Attribute(.liveText(name, { attributeText(f()) }))
     }
 
     /// `onX={…}`: a handler, given the event as the type it is.
@@ -162,17 +216,27 @@ public struct Attribute {
         }))
     }
 
-    /// `class:name={on}`.
+    /// `class:name={on}`, taken once.
     public static func Class(_ name: string, _ on: bool) -> Attribute {
         return Attribute(.classFlag(name, on))
     }
 
-    /// `style:property={value}`.
+    /// `class:name={on}`, live.
+    public static func LiveClass(_ name: string, _ on: () -> bool) -> Attribute {
+        return Attribute(.liveClass(name, on))
+    }
+
+    /// `style:property={value}`, taken once.
     public static func Style<V>(_ property: string, _ value: V) -> Attribute {
         return Attribute(.style(property, "\(value)"))
     }
 
-    /// `ref={$el}`. Kept for the emit form; the check form sets nothing.
+    /// `style:property={value}`, live.
+    public static func LiveStyle<V>(_ property: string, _ f: () -> V) -> Attribute {
+        return Attribute(.liveStyle(property, { "\(f())" }))
+    }
+
+    /// `ref={$el}`. Kept for the emit form's templates; nothing is set.
     public static func Ref<V>(_ ref: V) -> Attribute {
         return Attribute(.none)
     }
@@ -190,21 +254,27 @@ public struct Attribute {
     }
 }
 
+/// An attribute's text for a value: a Bool is presence ("" or none).
+func attributeText<V>(_ v: V) -> string? {
+    if let b = v as? bool { return b ? "" : nil }
+    return "\(v)"
+}
+
 func bindText(_ name: string, _ signal: reactive.Signal<string>) -> Attribute {
-    var s = signal
-    return Attribute(.bound(name, s.Value, true, "input", { e in
+    let s = signal
+    return Attribute(.bound(name, { s.Value }, "input", { e in
         if let i = e as? dom.InputEvent {
-            var w = signal
+            var w = s
             w.Value = i.Value
         }
     }))
 }
 
 func bindFlag(_ name: string, _ signal: reactive.Signal<bool>) -> Attribute {
-    var s = signal
-    return Attribute(.bound(name, "", s.Value, "change", { e in
+    let s = signal
+    return Attribute(.bound(name, { s.Value ? "" : nil }, "change", { e in
         // The page has toggled the box; the signal follows it.
-        var w = signal
+        var w = s
         w.Value = !w.Peek()
     }))
 }
@@ -231,12 +301,14 @@ public func Element(_ tag: string, _ attributes: [Attribute], _ children: [any R
             n.styles.append((property, value))
         case .handler(let event, let h):
             n.handlers.append((event, h))
-        case .bound(let name, let text, let on, let event, let h):
-            if name == "value" {
-                n.attrs.append((name, text))
-            } else if on {
-                n.attrs.append((name, ""))
-            }
+        case .liveText(let name, let f):
+            n.liveAttrs.append((name, f))
+        case .liveClass(let name, let f):
+            n.liveClasses.append((name, f))
+        case .liveStyle(let property, let f):
+            n.liveStyles.append((property, f))
+        case .bound(let name, let f, let event, let h):
+            n.liveAttrs.append((name, f))
             n.handlers.append((event, h))
         case .spread(let attrs):
             for k in attrs.keys.sorted() { n.attrs.append((k, attrs[k]!)) }
@@ -258,19 +330,81 @@ public func Fragment(_ children: [any Renderable]) -> Node {
     return n
 }
 
-/// The keyed list (proposed_vsx.md §5.4). The check form renders each
-/// item; the key is checked for its type and used by the emit form.
-public func For<T>(each: [T], key: ((T) -> int)? = nil, children: (T) -> Node) -> Node {
-    var kids: [Node] = []
-    for item in each { kids.append(children(item)) }
-    return fragmentOf(kids)
+// MARK: - For
+
+/// The keyed list (proposed_vsx.md §5.4): each item's row is made once,
+/// and kept -- with its elements, their focus and their state -- as long
+/// as its key is in the list, moved where the key moves. A row is given
+/// its item as a Readable, which follows the item when it changes under
+/// the same key. Without a key, an item's index is its key.
+public func For<T>(each: () -> [T], key: ((T) -> int)? = nil, children: (reactive.Readable<T>) -> Node) -> Node {
+    var items: [T] = []
+    var cells: [int: reactive.Signal<T>] = [:]
+    // Made by a non-generic function: vsc cannot yet reach an internal
+    // class's metadata from generic code specialized in another module.
+    return listNode(
+        count: {
+            items = each()
+            return items.count
+        },
+        key: { i in
+            if let k = key { return k(items[i]) }
+            return i
+        },
+        make: { i, k in
+            let cell = reactive.Signal<T>(items[i])
+            cells[k] = cell
+            return children(reactive.Readable(cell))
+        },
+        update: { i, k in
+            if var c = cells[k] { c.Value = items[i] }
+        },
+        drop: { k in cells[k] = nil })
 }
 
-func fragmentOf(_ kids: [Node]) -> Node {
+func listNode(count: () -> int, key: (int) -> int, make: (int, int) -> Node, update: (int, int) -> void, drop: (int) -> void) -> Node {
     let n = Node()
-    for k in kids { n.Children += k.Nodes() }
+    n.list = ListSpec(count: count, key: key, make: make, update: update, drop: drop)
     return n
 }
+
+/// A keyed list, with its item type erased: what Mount needs of For.
+final class ListSpec {
+    /// Reads the items (followed) and answers how many there are.
+    let count: () -> int
+    /// The key of the item at an index of the last read.
+    let key: (int) -> int
+    /// Makes the row of the item at an index, under its key.
+    let make: (int, int) -> Node
+    /// Gives the row under a key the item now at an index.
+    let update: (int, int) -> void
+    /// Forgets the row under a key.
+    let drop: (int) -> void
+
+    init(count: () -> int, key: (int) -> int, make: (int, int) -> Node, update: (int, int) -> void, drop: (int) -> void) {
+        self.count = count
+        self.key = key
+        self.make = make
+        self.update = update
+        self.drop = drop
+    }
+
+    /// Each item's row, made fresh: for RenderHTML.
+    func snapshot() -> [Node] {
+        var out: [Node] = []
+        reactive.Untracked {
+            let n = self.count()
+            var i = 0
+            while i < n {
+                out += self.make(i, self.key(i)).Nodes()
+                i += 1
+            }
+        }
+        return out
+    }
+}
+
+// MARK: - HTML
 
 func escapeText(_ s: string) -> string {
     var out = ""
@@ -303,6 +437,8 @@ func voidElement(_ tag: string) -> bool {
         return false
     }
 }
+
+// MARK: - Styles
 
 /// A package's compiled stylesheet: its .vss files as one sheet, in its
 /// own cascade layer and scoped to its elements (proposed_vsx.md §7). The
@@ -337,33 +473,21 @@ public struct Token {
     }
 }
 
-/// The sheets a tree of nodes uses, in cascade order: each after what it
-/// imports, and package main's last, so the program overrides what it
-/// builds on.
-public func SheetsOf(_ nodes: [Node]) -> [Sheet] {
-    var used: [Sheet] = []
-    for n in nodes { collectSheets(n, &used) }
-    var ordered: [Sheet] = []
-    var mains: [Sheet] = []
-    for s in used { place(s, &ordered) }
+/// Sheets in cascade order: each after what it imports, and package
+/// main's last, so the program overrides what it builds on.
+func ordered(_ used: [Sheet]) -> [Sheet] {
+    var out: [Sheet] = []
+    for s in used { place(s, &out) }
     var rest: [Sheet] = []
-    for s in ordered {
+    var mains: [Sheet] = []
+    for s in out {
         if s.Package == "main" { mains.append(s) } else { rest.append(s) }
     }
     return rest + mains
 }
 
-func collectSheets(_ n: Node, _ used: inout [Sheet]) {
-    if let s = n.sheet {
-        var seen = false
-        for u in used where u === s { seen = true }
-        if !seen { used.append(s) }
-    }
-    for c in n.Children { collectSheets(c, &used) }
-}
-
-func place(_ s: Sheet, _ ordered: inout [Sheet]) {
-    for o in ordered where o === s { return }
-    for a in s.After { place(a, &ordered) }
-    ordered.append(s)
+func place(_ s: Sheet, _ out: inout [Sheet]) {
+    for o in out where o === s { return }
+    for a in s.After { place(a, &out) }
+    out.append(s)
 }

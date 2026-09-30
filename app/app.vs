@@ -10,7 +10,8 @@
 // page patched once the event is done (proposed_vsx.md §8.1). This is the
 // first form of app.Run: one window, and styles given as a string until
 // .vss files are compiled. `--snapshot out.png` on the command line draws
-// the first frame into a PNG and quits.
+// the first frame into a PNG and quits; `--dark` and `--light` show the app
+// in that appearance, whatever the system's.
 package app
 
 import (
@@ -37,6 +38,9 @@ final class Host {
     var mounted: component.Mounted? = nil
     var snapshotPath: string? = nil
     var done = false
+    /// The appearance --dark or --light asked for, which the system's
+    /// does not change.
+    var forced: bool? = nil
 
     init(win: window.Window) {
         self.win = win
@@ -103,7 +107,9 @@ final class Host {
         case .frame(let f):
             frame(f.Time)
             return true
-        case .themeChanged(_):
+        case .themeChanged(let t):
+            // The system's appearance: what prefers-color-scheme answers.
+            if forced == nil { view.Page.SetColorScheme(dark: t == .dark) }
             requestFrame()
             return true
         default:
@@ -142,8 +148,24 @@ public func Run(title: string, width: float32 = 800, height: float32 = 600, css:
         return 1
     }
     let host = Host(win: win)
-    let args = CommandLine.arguments
-    if args.count > 2 && args[1] == "--snapshot" { host.snapshotPath = args[2] }
+    // --snapshot out.png draws a frame and quits; --dark and --light
+    // show the app in that appearance, whatever the system's.
+    var forced: bool? = nil
+    var args = CommandLine.arguments
+    var i = 1
+    while i < args.count {
+        if args[i] == "--snapshot" && i + 1 < args.count {
+            host.snapshotPath = args[i + 1]
+            i += 1
+        } else if args[i] == "--dark" {
+            forced = true
+        } else if args[i] == "--light" {
+            forced = false
+        }
+        i += 1
+    }
+    host.forced = forced
+    host.view.Page.SetColorScheme(dark: forced ?? (win.Theme() == .dark))
     host.mount(css: css, root)
     host.requestFrame()
     while let event = await win.WaitEvent() {
