@@ -1,7 +1,10 @@
 // ui/state checked on its own, with no window and no page.
 package main
 
-import "ui/state"
+import (
+    "time"
+    "ui/state"
+)
 
 var failures = 0
 
@@ -28,6 +31,14 @@ func testSignals() {
         n.Value = 4
     }
     check(seen == [1, 2, 4], "writes in a batch run the effect once, after it")
+    n.Value = 4
+    check(seen == [1, 2, 4], "writing the value it holds tells no one")
+    var words = state.Signal(["a"])
+    var wordRuns = 0
+    _ = state.Effect { wordRuns += 1; _ = words.Value }
+    words.Value = ["a"]
+    words.Value = ["a", "b"]
+    check(wordRuns == 2, "nor does an equal array; a different one does (\(wordRuns))")
     e.Dispose()
     n.Value = 5
     check(seen == [1, 2, 4], "a disposed effect runs no more")
@@ -126,12 +137,100 @@ func testOwners() {
     check(doubled.Value == 4, "a Readable of an expression")
 }
 
-func main() -> int32 {
+@Observable final class Store {
+    var Todos: [Todo] = []
+    var Filter = "all"
+    var Owner: string
+    let Id = 7
+    var Left: int { return Todos.filter { !$0.Done }.count }
+
+    init(owner: string) { Owner = owner }
+
+    func Add(_ t: string) { Todos.append(Todo(Title: t, Done: false)) }
+    func Toggle(_ i: int) { Todos[i].Done = !Todos[i].Done }
+    func Clear() { Todos.removeAll { $0.Done } }
+}
+
+func testObservable() {
+    let s = Store(owner: "ada")
+    var left: [int] = []
+    var owners: [string] = []
+    _ = state.Effect { left.append(s.Left) }
+    _ = state.Effect { owners.append(s.Owner) }
+    s.Add("a")
+    s.Add("b")
+    s.Toggle(0)
+    check(left == [0, 1, 2, 1], "an @Observable's properties are followed, through its methods (\(left))")
+    s.Filter = "done"
+    check(left == [0, 1, 2, 1] && owners == ["ada"], "and each only by what read it")
+    var o = s.$Owner
+    o.Value = "grace"
+    check(owners == ["ada", "grace"] && s.Owner == "grace", "$Owner is the property's signal")
+    s.Owner = "grace"
+    check(owners.count == 2, "a write of the value it holds tells no one")
+    s.Clear()
+    check(s.Todos.count == 1 && s.Id == 7, "a let stays a let")
+}
+
+struct Oops: Error {}
+
+func fetch(_ n: int) async throws -> int {
+    try await time.Sleep(time.Duration.Milliseconds(10))
+    if n < 0 { throw Oops() }
+    return n * 2
+}
+
+func describe(_ l: state.Load<int>) -> string {
+    switch l {
+    case .loading: return "loading"
+    case .ready(let v): return "ready \(v)"
+    case .failed(_): return "failed"
+    }
+}
+
+@MainActor
+func testResources() async {
+    var id = state.Signal(1)
+    let r = state.Resource<int>(of: { id.Value }) { n in try await fetch(n) }
+    var seen: [string] = []
+    _ = state.Effect { seen.append(describe(r.State)) }
+    await r.Loaded()
+    id.Value = 5
+    await r.Loaded()
+    id.Value = -1
+    await r.Loaded()
+    check(seen == ["loading", "ready 2", "loading", "ready 10", "loading", "failed"], "a resource loads, loads again when its key changes, and fails")
+    check(r.Value == nil, "and has no value after a failure")
+
+    var q = state.Signal(1)
+    let kept = state.Resource<int>(of: { q.Value }, keepPrevious: true) { n in try await fetch(n) }
+    var shown: [string] = []
+    _ = state.Effect { shown.append(describe(kept.State) + (kept.IsPending ? "*" : "")) }
+    await kept.Loaded()
+    q.Value = 2
+    q.Value = 3
+    await kept.Loaded()
+    kept.Reload()
+    await kept.Loaded()
+    check(shown == ["loading*", "ready 2", "ready 2*", "ready 6", "ready 6*", "ready 6"], "with keepPrevious, the last value shows while the next loads; a superseded load is dropped")
+
+    let o = state.Owner()
+    var gone: state.Resource<int>? = nil
+    state.WithOwner(o) { gone = state.Resource<int> { try await fetch(7) } }
+    o.Dispose()
+    await gone!.Loaded()
+    check(describe(gone!.State) == "loading", "a disposed resource's load is dropped")
+}
+
+@MainActor
+func main() async -> int32 {
     testOwners()
     testSignals()
     testDependencies()
     testComputed()
     testState()
+    testObservable()
+    await testResources()
     if failures > 0 {
         print("\(failures) FAILED")
         return 1

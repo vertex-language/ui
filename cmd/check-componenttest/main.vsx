@@ -7,6 +7,7 @@ import (
     "ui/state"
     "ui/component"
     "ui/componenttest"
+    "time"
     "web/dom"
 )
 
@@ -61,8 +62,235 @@ func App() -> Node {
     )
 }
 
+func Quantity() -> Node {
+    @state.State var qty = 2
+    @state.State var price = 1.5
+    return (
+        <div>
+            <input id="qty" value={$qty} />
+            <input id="price" value={$price} />
+            <p data-testid="total">{float64(qty) * price}</p>
+        </div>
+    )
+}
+
+func Events() -> Node {
+    @state.State var log: [string] = []
+    return (
+        <div>
+            <p id="card" onMouseEnter={log.append("enter")} onMouseLeave={log.append("leave")}
+               onDoubleClick={log.append("double")} onContextMenu={e in
+                   e.PreventDefault()
+                   log.append("menu")
+               }>card</p>
+            <input id="name" onFocus={log.append("focus")} onBlur={log.append("blur")} />
+            <button id="other">other</button>
+            <p data-testid="log">{log.joined(separator: ",")}</p>
+        </div>
+    )
+}
+
+let Theme = component.Context<string>("light")
+
+final class Session {
+    var Name: string
+    init(_ name: string) { Name = name }
+}
+let CurrentUser = component.Context<Session?>(nil)
+
+func Badge() -> Node {
+    let theme = Theme.Value
+    let who = CurrentUser.Value?.Name ?? "nobody"
+    return <span class={"badge " + theme}>{who}</span>
+}
+
+func Themed() -> Node {
+    @state.State var open = false
+    return (
+        <div>
+            <Badge />
+            <Theme.Provider value="dark">
+                <CurrentUser.Provider value={Session("ada")}>
+                    <Badge />
+                    {if open { <Badge /> }}
+                    <component.For each={[1, 2]}>{n in <Badge />}</component.For>
+                </CurrentUser.Provider>
+            </Theme.Provider>
+            <button onClick={open = true}>open</button>
+        </div>
+    )
+}
+
+func SignIn() -> Node {
+    @state.State var user: Ref = nil
+    @state.State var pass: Ref = nil
+    @state.State var log: [string] = []
+    component.OnMount {
+        log.append(user == nil ? "no ref" : "mounted")
+        component.Focus(user)
+        state.OnCleanup { log.append("cleaned") }
+    }
+    return (
+        <form>
+            <input id="user" ref={$user} />
+            <input id="pass" ref={$pass} type="password" />
+            <button type="button" onClick={component.Focus(pass)}>next</button>
+            <p data-testid="log">{log.joined(separator: ",")}</p>
+        </form>
+    )
+}
+
+func Toggle() -> Node {
+    @state.State var shown = true
+    @state.State var el: Ref = nil
+    return (
+        <div>
+            {if shown { <SignIn /> }}
+            {if shown { <span ref={$el}>x</span> }}
+            <p data-testid="ref">{el == nil ? "none" : "set"}</p>
+            <button id="hide" onClick={shown = false}>hide</button>
+        </div>
+    )
+}
+
+struct Contact: Equatable {
+    var ID: int
+    var Name: string
+}
+
+@Observable final class Book {
+    var Contacts: [Contact] = []
+    var Draft = ""
+    var next = 1
+
+    init() {}
+
+    func Add() {
+        if Draft.isEmpty { return }
+        Contacts.append(Contact(ID: next, Name: Draft))
+        next += 1
+        Draft = ""
+    }
+}
+
+let Books = component.Context<Book?>(nil)
+
+func ContactList() -> Node {
+    let book = Books.Value!
+    return (
+        <ul>
+            <component.For each={book.Contacts} key={c in c.ID}>
+                {c in <li>{c.Name}</li>}
+            </component.For>
+        </ul>
+    )
+}
+
+func AddContact() -> Node {
+    let book = Books.Value!
+    return (
+        <form onSubmit={e in
+            e.PreventDefault()
+            book.Add()
+        }>
+            <input id="draft" value={book.$Draft} />
+            <p data-testid="count">{book.Contacts.count} contacts</p>
+        </form>
+    )
+}
+
+struct NotFound: Error {}
+
+func loadUser(_ id: int) async throws -> string {
+    try await time.Sleep(time.Duration.Milliseconds(10))
+    if id == 0 { throw NotFound() }
+    return id == 1 ? "Ada" : "Grace"
+}
+
+func Profile() -> Node {
+    @state.State var id = 1
+    let user = state.Resource<string>(of: { id }) { n in try await loadUser(n) }
+    return (
+        <section>
+            {switch user.State {
+            case .loading: <p class="spinner">loading</p>
+            case .ready(let name): <h2>{name}</h2>
+            case .failed(_): <p role="alert">not found</p>
+            }}
+            <button id="next" onClick={id += 1}>next</button>
+            <button id="none" onClick={id = 0}>none</button>
+        </section>
+    )
+}
+
 @MainActor
-func main() -> int32 {
+func main() async -> int32 {
+    // Refs, OnMount and Focus.
+    let si = componenttest.Mount(width: 300, height: 200) { <Toggle /> }
+    check(si.ByTestId("log").Text == "mounted", "OnMount runs once the nodes are in, with refs set (\(si.ByTestId("log").Text))")
+    check(si.Page.FocusedElement === si.Query("#user").First, "and Focus through a ref focuses the field")
+    si.Click(si.Query("button[type=button]"))
+    check(si.Page.FocusedElement === si.Query("#pass").First, "Focus from a handler")
+    check(si.ByTestId("ref").Text == "set", "a ref is its element")
+    si.Click(si.Query("#hide"))
+    check(si.ByTestId("ref").Text == "none", "and nil once it is gone")
+
+    // An @Observable store, given through a context, bound both ways.
+    let book = Book()
+    let bk = componenttest.Mount(width: 300, height: 200) {
+        <Books.Provider value={book}>
+            <AddContact />
+            <ContactList />
+        </Books.Provider>
+    }
+    bk.Type(into: bk.Query("#draft"), "Ada")
+    check(book.Draft == "Ada", "typing writes the store's property through $Draft")
+    bk.Press("Enter")
+    check(bk.ByRole("listitem").Text == "Ada" && bk.ByTestId("count").Text == "1 contacts",
+          "a store's method updates every component that read it (\(bk.ByTestId("count").Text))")
+    check(bk.Query("#draft").Value == "", "and the field it cleared")
+    book.Draft = "Grace"
+    book.Add()
+    check(bk.ByRole("listitem").Count == 2, "a write from outside the tree shows too")
+
+    // Context: values given down the tree, to live parts made later too.
+    let t = componenttest.Mount(width: 300, height: 200) { <Themed /> }
+    check(t.Query(".badge.light").Text == "nobody", "outside a Provider, a context's fallback")
+    check(t.Query(".badge.dark").Count == 3 && t.Query(".badge.dark").Text == "ada", "inside, the value given, to components and list rows (\(t.Query(".badge.dark").Count))")
+    t.Click(t.ByRole("button"))
+    check(t.Query(".badge.dark").Count == 4, "and to a branch made later")
+
+    // Async data: a resource's states, switched on in markup.
+    let p = componenttest.Mount(width: 300, height: 200) { <Profile /> }
+    check(p.Query(".spinner").Exists, "a resource shows loading first")
+    check((await p.WaitFor { p.ByRole("heading") }).Text == "Ada", "then what it loaded")
+    p.Click(p.Query("#next"))
+    check(p.Query(".spinner").Exists, "loads again when its key changes")
+    check((await p.WaitFor { p.ByText("Grace") }).Exists, "and shows the new value")
+    p.Click(p.Query("#none"))
+    check((await p.WaitFor { p.ByRole("alert") }).Text == "not found", "and a failure")
+
+    // The pointer and focus events a component handles.
+    let ev = componenttest.Mount(width: 300, height: 200) { <Events /> }
+    ev.Hover(ev.Query("#card"))
+    ev.Hover(ev.Query("#other"))
+    ev.DoubleClick(ev.Query("#card"))
+    ev.RightClick(ev.Query("#card"))
+    ev.Click(ev.Query("#name"))
+    ev.Click(ev.Query("#other"))
+    check(ev.ByTestId("log").Text == "enter,leave,enter,double,menu,leave,focus,blur",
+          "onMouseEnter, onMouseLeave, onDoubleClick, onContextMenu, onFocus and onBlur (\(ev.ByTestId("log").Text))")
+
+    // Numbers bound both ways.
+    let q = componenttest.Mount(width: 300, height: 120) { <Quantity /> }
+    check(q.ByTestId("total").Text == "3.0", "numbers bound to fields show (\(q.ByTestId("total").Text))")
+    q.Type(into: q.Query("#qty"), "0")
+    check(q.ByTestId("total").Text == "30.0", "typing into a number field writes the number back (\(q.ByTestId("total").Text))")
+    q.Type(into: q.Query("#qty"), "x")
+    check(q.ByTestId("total").Text == "30.0", "and what does not parse leaves it (\(q.ByTestId("total").Text))")
+    q.Replace(in: q.Query("#price"), "2")
+    check(q.ByTestId("total").Text == "40.0", "Replace types over what a field holds (\(q.ByTestId("total").Text))")
+
     let css = "li.done span { text-decoration: line-through; color: rgb(150, 150, 150); }"
     let screen = componenttest.Mount(width: 420, height: 300, css: css) { <App /> }
 

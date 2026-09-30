@@ -129,11 +129,33 @@ public final class Cell: Source {
         return value
     }
 
-    func write(_ v: Any) {
+    /// Writes a value; one equal to what the cell holds tells no one, so
+    /// `count = count` runs nothing.
+    func write(_ v: Any, same: bool) {
         value = v
+        if same { return }
         self.changed()
         written()
     }
+}
+
+/// Whether two values a cell holds are equal, where their type says what
+/// that is: the numbers, strings and Booleans, and arrays of them. Any
+/// other type is never equal, so writing it always tells what read it.
+/// Generic, so it is compiled where the value's type is: vsc does not yet
+/// cast an array boxed in another module.
+func equal<T>(_ a: Any, _ b: T) -> bool {
+    if let x = a as? int, let y = b as? int { return x == y }
+    if let x = a as? string, let y = b as? string { return x == y }
+    if let x = a as? bool, let y = b as? bool { return x == y }
+    if let x = a as? float64, let y = b as? float64 { return x == y }
+    if let x = a as? float32, let y = b as? float32 { return x == y }
+    if let x = a as? int32, let y = b as? int32 { return x == y }
+    if let x = a as? int64, let y = b as? int64 { return x == y }
+    if let x = a as? uint8, let y = b as? uint8 { return x == y }
+    if let x = a as? [int], let y = b as? [int] { return x == y }
+    if let x = a as? [string], let y = b as? [string] { return x == y }
+    return false
 }
 
 /// A computed value's storage: the computation, what it last gave, and
@@ -169,18 +191,27 @@ public struct Signal<T> {
         cell = Cell(value)
     }
 
+    /// A signal with no value yet: an @Observable property set only in its
+    /// class's init starts as one. Reading it before it is set is an error.
+    public init() {
+        cell = Cell(Unset())
+    }
+
     init(cell: Cell) {
         self.cell = cell
     }
 
     public var Value: T {
         get { return cell.read() as! T }
-        set { cell.write(newValue) }
+        set { cell.write(newValue, same: equal(cell.value, newValue)) }
     }
 
     /// The value, without following it.
     public func Peek() -> T { return cell.value as! T }
 }
+
+/// What an empty signal holds.
+public struct Unset {}
 
 /// A value computed from others, again only when one of them has changed
 /// and it is read.
@@ -263,14 +294,7 @@ public struct State<T> {
     var signal: Signal<T>
 
     public init(wrappedValue: T) {
-        // Rendered again inside the same slots, the state is the one it
-        // was the first time: see Slots.
-        if let cell = claimSlot() {
-            signal = Signal<T>(cell: cell)
-        } else {
-            signal = Signal<T>(wrappedValue)
-            fillSlot(signal.cell)
-        }
+        signal = Signal<T>(wrappedValue)
     }
 
     public var wrappedValue: T {
@@ -282,47 +306,6 @@ public struct State<T> {
 }
 
 
-
-/// The state of code that runs more than once and should find its state
-/// where it left it: a component rendered again by ui/component's check
-/// form. Inside WithSlots, each State made takes the next slot in order,
-/// and on the next run in the same slots gets the signal it had -- which
-/// holds as long as the states are made in the same order each time, as
-/// React's hooks require. (The emit form runs components once and needs
-/// none of this.)
-public final class Slots {
-    var cells: [Cell] = []
-    var cursor = 0
-
-    public init() {}
-
-    /// How many states the slots hold.
-    public var Count: int { return cells.count }
-}
-
-var currentSlots: Slots? = nil
-
-/// Runs body with its States in slots.
-public func WithSlots(_ slots: Slots, _ body: () -> void) {
-    let prev = currentSlots
-    slots.cursor = 0
-    currentSlots = slots
-    body()
-    currentSlots = prev
-}
-
-func claimSlot() -> Cell? {
-    guard let s = currentSlots, s.cursor < s.cells.count else { return nil }
-    let c = s.cells[s.cursor]
-    s.cursor += 1
-    return c
-}
-
-func fillSlot(_ c: Cell) {
-    guard let s = currentSlots else { return }
-    s.cells.append(c)
-    s.cursor += 1
-}
 
 /// What some code made that has to end with it: the effects made while it
 /// ran, and cleanups registered with OnCleanup. An effect owns what each of
@@ -358,6 +341,10 @@ func adopt(_ e: Effect) {
     if let o = currentOwner { o.effects.append(e) }
 }
 
+/// The owner of what the code running now makes, if any: to make
+/// something later -- after an await, once mounted -- that ends with it.
+public func CurrentOwner() -> Owner? { return currentOwner }
+
 /// Runs body with what it makes owned by owner.
 public func WithOwner(_ owner: Owner, _ body: () -> void) {
     let prev = own(owner)
@@ -391,5 +378,144 @@ public struct Readable<T> {
 
     public subscript<U>(dynamicMember path: KeyPath<T, U>) -> U {
         return get()[keyPath: path]
+    }
+}
+
+// MARK: - Resource
+
+/// Where an async value is: still loading, loaded, or failed.
+public enum Load<T> {
+    case loading
+    case ready(T)
+    case failed(Error)
+}
+
+/// A value loaded asynchronously, as state: `State` is `.loading`, then
+/// `.ready(value)` or `.failed(error)`, and what reads it follows it.
+///
+///     let user = state.Resource(of: { id }) { id in try await api.User(id) }
+///     {switch user.State { case .loading: <Spinner/> case .ready(let u): … }}
+///
+/// The load runs off the main thread and its result is written on it. When
+/// the key -- what `of` reads -- changes, the load in flight is cancelled
+/// and a new one started; when the code that made the resource is
+/// disposed (a component gone), so is its load. With keepPrevious, a
+/// reload keeps the last value showing, and IsPending says it is under way.
+public struct Resource<T> {
+    var signal: Signal<LoadBox<T>>
+    var pending: Signal<bool>
+    let job: Job
+
+    /// A resource loaded again when what key reads changes.
+    public init<K>(of key: () -> K, keepPrevious: bool = false, _ load: (K) async throws -> T) {
+        signal = Signal<LoadBox<T>>(LoadBox<T>(Load<T>.loading))
+        pending = Signal<bool>(true)
+        job = newJob()
+        let sig = signal
+        let busy = pending
+        let j = job
+        _ = Effect {
+            let k = key()
+            Untracked {
+                j.start {
+                    var s = sig
+                    var p = busy
+                    Batch {
+                        if !keepPrevious || !isReady(s.Peek().load) { s.Value = LoadBox<T>(Load<T>.loading) }
+                        p.Value = true
+                    }
+                    let generation = j.generation
+                    return Task { @MainActor in
+                        do {
+                            let v = try await load(k)
+                            if j.generation == generation {
+                                Batch {
+                                    s.Value = LoadBox<T>(Load<T>.ready(v))
+                                    p.Value = false
+                                }
+                            }
+                        } catch {
+                            let failed = LoadBox<T>(Load<T>.failed(error))
+                            if j.generation == generation {
+                                Batch {
+                                    s.Value = failed
+                                    p.Value = false
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            OnCleanup { j.cancel() }
+        }
+    }
+
+    /// A resource loaded once, and again on Reload.
+    public init(keepPrevious: bool = false, _ load: () async throws -> T) {
+        self.init(of: { 0 }, keepPrevious: keepPrevious, { _ in try await load() })
+    }
+
+    /// Where the value is: followed.
+    public var State: Load<T> { return signal.Value.load }
+
+    /// The value, once loaded; nil while loading or after a failure.
+    public var Value: T? {
+        if case .ready(let v) = signal.Value.load { return v }
+        return nil
+    }
+
+    /// Whether a load is under way.
+    public var IsPending: bool { return pending.Value }
+
+    /// Loads again, with the key as it is.
+    public func Reload() { job.restart() }
+
+    /// Waits for the load under way to end: for tests, and for code that
+    /// needs the value before it goes on.
+    public func Loaded() async { await job.wait() }
+}
+
+/// A Load in a box: a signal holds a class, where it cannot yet hold an
+/// enum with a payload (vsc_TODO.md #13).
+final class LoadBox<T> {
+    let load: Load<T>
+    init(_ l: Load<T>) { load = l }
+}
+
+func isReady<T>(_ l: Load<T>) -> bool {
+    if case .ready(_) = l { return true }
+    return false
+}
+
+func newJob() -> Job { return Job() }
+
+/// A resource's load: the task under way, how many have been started (a
+/// result from an older one is dropped), and how to start another.
+final class Job {
+    var task: Task<Void, Never>? = nil
+    var generation = 0
+    var starter: (() -> Task<Void, Never>)? = nil
+
+    init() {}
+
+    func start(_ f: () -> Task<Void, Never>) {
+        starter = f
+        restart()
+    }
+
+    func restart() {
+        task?.cancel()
+        generation += 1
+        if let f = starter { task = f() }
+    }
+
+    func cancel() {
+        task?.cancel()
+        generation += 1
+        task = nil
+    }
+
+    func wait() async {
+        if let t = task { await t.value }
     }
 }

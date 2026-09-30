@@ -22,6 +22,7 @@ package component
 import (
     "ui/state"
     "web/dom"
+    "web/html"
 )
 
 /// What an element, a text, a fragment, a live region or a keyed list is:
@@ -38,6 +39,7 @@ public final class Node: Renderable {
     var liveClasses: [(string, () -> bool)] = []
     var liveStyles: [(string, () -> string)] = []
     var handlers: [(string, (dom.Event) -> void)] = []
+    var refs: [(html.Node?) -> void] = []
     /// The stylesheet of the package whose markup made the element.
     var sheet: Sheet? = nil
     public internal(set) var Children: [Node] = []
@@ -132,6 +134,15 @@ extension Optional: Renderable where Wrapped: Renderable {
     }
 }
 
+/// What `ref={$el}` fills: the element, while it is in the document.
+///
+///     @state.State var field: Ref = nil
+///     <input ref={$field} />
+///
+/// (A .vsx file need not import web/html for it, whose Node would be
+/// taken for a component's Node.)
+public typealias Ref = html.Node?
+
 /// A component's children: made when the component asks, inside it, as
 /// one fragment.
 public typealias Children = () -> Node
@@ -147,7 +158,7 @@ public func Live<V: Renderable>(_ f: () -> V) -> Node {
 
 func liveNode(_ f: () -> [Node]) -> Node {
     let n = Node()
-    n.live = f
+    n.live = captured(f)
     return n
 }
 
@@ -175,6 +186,8 @@ public enum AttributeKind {
     case bound(string, () -> string?, string, (dom.Event) -> void)
     case spread([string: string])
     case sheet(Sheet)
+    /// `ref={$el}`: given the element when it is made, and nil when it goes.
+    case ref((html.Node?) -> void)
     case none
 }
 
@@ -194,8 +207,7 @@ public struct Attribute {
     public static func Value<V>(_ name: string, _ value: V) -> Attribute {
         // vsc does not yet prefer non-generic overloads, so a signal is
         // found here.
-        if let s = value as? state.Signal<string> { return bindText(name, s) }
-        if let s = value as? state.Signal<bool> { return bindFlag(name, s) }
+        if let bound = bound(name, value) { return bound }
         if let b = value as? bool { return Attribute(.flag(name, b)) }
         return Attribute(.text(name, "\(value)"))
     }
@@ -204,8 +216,7 @@ public struct Attribute {
     /// is bound both ways.
     public static func Live<V>(_ name: string, _ f: () -> V) -> Attribute {
         let first = state.Untracked(f)
-        if let s = first as? state.Signal<string> { return bindText(name, s) }
-        if let s = first as? state.Signal<bool> { return bindFlag(name, s) }
+        if let b = bound(name, first) { return b }
         return Attribute(.liveText(name, { attributeText(f()) }))
     }
 
@@ -236,8 +247,15 @@ public struct Attribute {
         return Attribute(.liveStyle(property, { "\(f())" }))
     }
 
-    /// `ref={$el}`. Kept for the emit form's templates; nothing is set.
+    /// `ref={$el}`: el, an `html.Node?` state, is the element while it
+    /// is in the document, and nil once it is gone.
     public static func Ref<V>(_ ref: V) -> Attribute {
+        if let s = ref as? state.Signal<html.Node?> {
+            return Attribute(.ref({ n in
+                var w = s
+                w.Value = n
+            }))
+        }
         return Attribute(.none)
     }
 
@@ -258,6 +276,39 @@ public struct Attribute {
 func attributeText<V>(_ v: V) -> string? {
     if let b = v as? bool { return b ? "" : nil }
     return "\(v)"
+}
+
+/// A signal given to an attribute, bound both ways: text, a number (what
+/// the user types is parsed back; what does not parse is left), or a
+/// Boolean. Generic, so the casts are made where the signal's type is.
+func bound<V>(_ name: string, _ value: V) -> Attribute? {
+    if let s = value as? state.Signal<string> { return bindText(name, s) }
+    if let s = value as? state.Signal<bool> { return bindFlag(name, s) }
+    if let s = value as? state.Signal<int> {
+        return bindParsed(name, { "\(s.Value)" }, { text in
+            if let n = int(text) {
+                var w = s
+                w.Value = n
+            }
+        })
+    }
+    if let s = value as? state.Signal<float64> {
+        return bindParsed(name, { "\(s.Value)" }, { text in
+            if let x = float64(text) {
+                var w = s
+                w.Value = x
+            }
+        })
+    }
+    return nil
+}
+
+/// An attribute following read, whose input events hand what was typed to
+/// write.
+func bindParsed(_ name: string, _ read: () -> string, _ write: (string) -> void) -> Attribute {
+    return Attribute(.bound(name, { read() }, "input", { e in
+        if let i = e as? dom.InputEvent { write(i.Value) }
+    }))
 }
 
 func bindText(_ name: string, _ signal: state.Signal<string>) -> Attribute {
@@ -315,6 +366,8 @@ public func Element(_ tag: string, _ attributes: [Attribute], _ children: [any R
         case .sheet(let sh):
             n.sheet = sh
             n.attrs.append(("data-p", sh.Package))
+        case .ref(let give):
+            n.refs.append(give)
         case .none:
             break
         }
@@ -362,9 +415,22 @@ public func For<T>(each: () -> [T], key: ((T) -> int)? = nil, children: (state.R
         drop: { k in cells[k] = nil })
 }
 
+/// make, run inside the values given where the list was written.
+func capturedMake(_ make: (int, int) -> Node) -> (int, int) -> Node {
+    let at = frames
+    if at == nil { return make }
+    return { i, k in
+        let prev = frames
+        frames = at
+        let r = make(i, k)
+        frames = prev
+        return r
+    }
+}
+
 func listNode(count: () -> int, key: (int) -> int, make: (int, int) -> Node, update: (int, int) -> void, drop: (int) -> void) -> Node {
     let n = Node()
-    n.list = ListSpec(count: count, key: key, make: make, update: update, drop: drop)
+    n.list = ListSpec(count: count, key: key, make: capturedMake(make), update: update, drop: drop)
     return n
 }
 

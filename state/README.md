@@ -30,9 +30,27 @@ log.Dispose()
 | `@State var x = v` | A signal in a variable: `x` reads and writes it, `$x` is the `Signal`. |
 | `Owner`, `WithOwner`, `OnCleanup` | What code made that ends with it. An effect owns what each of its runs makes -- effects, cleanups -- and disposes it before running again. |
 | `Readable<T>` | A value to read, live: a signal, or a closure over signals. Members read through it (`todo.Done`). |
-| `Slots`, `WithSlots` | Where `@State`s made by code that runs again find themselves, in order. ui/component no longer needs them (its components run once); kept for code that re-runs. |
+| `Resource<T>` | A value loaded asynchronously: `State` is a `Load<T>` (`.loading`, `.ready(T)`, `.failed(Error)`), loaded again when what `of:` reads changes, cancelled with its owner. `keepPrevious`, `IsPending`, `Reload()`, `await Loaded()`. |
+| `@Observable final class` | vsc lowers each stored `var` to a signal, `$Name`, and a property over it: reading `store.Name` follows it, writing tells what read it. Its type is written, or its value a literal. |
 
-Effects run synchronously, once per batch, in the order they were told.
+```vertex
+@Observable final class Store {
+    var Todos: [Todo] = []
+    var Filter = "all"
+    func Add(_ t: string) { Todos.append(Todo(Title: t)) }
+}
+
+let user = state.Resource<User>(of: { id.Value }) { id in try await api.User(id) }
+switch user.State {
+case .loading: …
+case .ready(let u): …
+case .failed(let e): …
+}
+```
+
+Effects run synchronously, once per batch, in the order they were told. A
+write of a value equal to the one held -- a number, a string, a Boolean,
+or an array of them -- tells no one.
 
 ```bash
 vsc run check-state

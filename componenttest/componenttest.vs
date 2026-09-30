@@ -22,6 +22,7 @@ import (
     "image"
     "image/draw"
     "image/png"
+    "time"
     "ui/state"
     "ui/component"
     "web"
@@ -42,6 +43,23 @@ public final class Screen {
         Mounted = mounted
         self.width = width
         self.height = height
+    }
+
+    // MARK: - Waiting
+
+    /// Waits for what query finds to exist -- a resource loaded, a task
+    /// finished -- letting tasks run meanwhile, and gives it; or gives
+    /// what it finds at the end of timeout (milliseconds), none.
+    ///
+    ///     let name = await screen.WaitFor { screen.ByText("Ada") }
+    public func WaitFor(timeout: int = 2000, _ query: () -> Found) async -> Found {
+        var waited = 0
+        while true {
+            let f = query()
+            if f.Exists || waited >= timeout { return f }
+            try? await time.Sleep(time.Duration.Milliseconds(5))
+            waited += 5
+        }
     }
 
     // MARK: - Queries
@@ -107,15 +125,64 @@ public final class Screen {
     public func Click(_ found: Found) -> bool {
         guard let n = found.First, let p = pointOn(n) else { return false }
         state.Batch {
+            // The pointer goes there first, as a user's does.
+            _ = self.Page.Handle(.pointerMoved(p))
             _ = self.Page.Handle(.pointerDown(web.Pointer(p)))
             _ = self.Page.Handle(.pointerUp(web.Pointer(p)))
         }
         return true
     }
 
-    /// Clicks a field to focus it, and types text into it.
+    /// Moves the pointer onto the first element found: mouseenter to it,
+    /// mouseleave to what the pointer left.
+    @discardableResult
+    public func Hover(_ found: Found) -> bool {
+        guard let n = found.First, let p = pointOn(n) else { return false }
+        state.Batch { _ = self.Page.Handle(.pointerMoved(p)) }
+        return true
+    }
+
+    /// Double-clicks the first element found: two clicks, and a dblclick.
+    @discardableResult
+    public func DoubleClick(_ found: Found) -> bool {
+        guard let n = found.First, let p = pointOn(n) else { return false }
+        state.Batch {
+            // The pointer goes there first, as a user's does.
+            _ = self.Page.Handle(.pointerMoved(p))
+            _ = self.Page.Handle(.pointerDown(web.Pointer(p)))
+            _ = self.Page.Handle(.pointerUp(web.Pointer(p)))
+            _ = self.Page.Handle(.pointerDown(web.Pointer(p, clicks: 2)))
+            _ = self.Page.Handle(.pointerUp(web.Pointer(p, clicks: 2)))
+        }
+        return true
+    }
+
+    /// Presses the secondary button on the first element found: a
+    /// contextmenu.
+    @discardableResult
+    public func RightClick(_ found: Found) -> bool {
+        guard let n = found.First, let p = pointOn(n) else { return false }
+        state.Batch {
+            // The pointer goes there first, as a user's does.
+            _ = self.Page.Handle(.pointerMoved(p))
+            _ = self.Page.Handle(.pointerDown(web.Pointer(p, button: .secondary)))
+            _ = self.Page.Handle(.pointerUp(web.Pointer(p, button: .secondary)))
+        }
+        return true
+    }
+
+    /// Clicks a field to focus it, and types text at the end of what it
+    /// holds, as a user who clicks into a field and types does.
     public func Type(into found: Found, _ text: string) {
         _ = Click(found)
+        state.Batch { _ = self.Page.Handle(.keyDown(web.Key(Key: "End", Code: "End"))) }
+        state.Batch { _ = self.Page.Handle(.text(text)) }
+    }
+
+    /// Selects everything in a field and types text in its place.
+    public func Replace(in found: Found, _ text: string) {
+        _ = Click(found)
+        state.Batch { _ = self.Page.Handle(.keyDown(web.Key(Key: "a", Code: "KeyA", Meta: true))) }
         state.Batch { _ = self.Page.Handle(.text(text)) }
     }
 
@@ -238,7 +305,7 @@ public func Mount(width: int32 = 800, height: int32 = 600, css: string = "", _ r
     page.LoadHTML("<!doctype html><html><head><style>html { font: 14px system-ui; } body { margin: 0; }" + css + "</style></head><body></body></html>")
     let doc = page.Document!
     let body = doc.Tree.ElementsByTagName("body").first!
-    let mounted = component.Mount(root, into: doc, at: body, styles: { sheets in page.SetStyleSheets(sheets) })
+    let mounted = component.Mount(root, into: doc, at: body, styles: { sheets in page.SetStyleSheets(sheets) }, focus: { n in page.Focus(n) })
     return Screen(page: page, mounted: mounted, width: width, height: height)
 }
 

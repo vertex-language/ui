@@ -14,6 +14,7 @@ public final class Mounted {
     let doc: dom.Document
     let parent: html.Node
     let styles: (([string]) -> void)?
+    let focus: ((html.Node?) -> void)?
     /// What the root made: every binding, and every list's rows.
     let owner = state.Owner()
     var used: [Sheet] = []
@@ -23,10 +24,11 @@ public final class Mounted {
     /// How many times a live part has run, the first time included.
     public internal(set) var Updates = 0
 
-    init(doc: dom.Document, parent: html.Node, styles: (([string]) -> void)?) {
+    init(doc: dom.Document, parent: html.Node, styles: (([string]) -> void)?, focus: ((html.Node?) -> void)?) {
         self.doc = doc
         self.parent = parent
         self.styles = styles
+        self.focus = focus
     }
 
     /// Disposes every binding, and takes the root's nodes out of the
@@ -73,9 +75,24 @@ public final class Mounted {
         for (name, f) in n.liveAttrs {
             bind { self.set(el, name, f()) }
         }
-        for (event, h) in n.handlers { _ = doc.AddEventListener(el, event, h) }
+        for (event, h) in n.handlers {
+            _ = doc.AddEventListener(el, event, { e in self.hosting { h(e) } })
+        }
         for c in n.Children { build(c, into: el, before: nil) }
         doc.InsertBefore(parent, el, before)
+        for give in n.refs {
+            give(el)
+            state.OnCleanup { give(nil) }
+        }
+    }
+
+    /// Runs body as this root's code: what it calls Focus on is focused
+    /// in this root's page.
+    func hosting(_ body: () -> void) {
+        let prev = host
+        host = self
+        body()
+        host = prev
     }
 
     /// A binding: an effect owned by what is being made, counted.
@@ -114,6 +131,7 @@ public final class Mounted {
                 for c in current { self.remove(c) }
                 for n in nodes { self.build(n, into: p, before: end) }
                 self.giveSheets()
+                self.hosting { runMounted() }
             }
         }
     }
@@ -186,6 +204,7 @@ public final class Mounted {
                 }
                 rows.rows = next
                 self.giveSheets()
+                self.hosting { runMounted() }
             }
         }
     }
@@ -260,13 +279,63 @@ final class RowTable {
 /// root runs once; its live parts keep themselves up to date. styles is
 /// given the stylesheets the nodes' packages carry, in cascade order,
 /// whenever they change: a page sets them (web.Page.SetStyleSheets).
-public func Mount(_ root: () -> Node, into doc: dom.Document, at parent: html.Node, styles: (([string]) -> void)? = nil) -> Mounted {
-    let m = Mounted(doc: doc, parent: parent, styles: styles)
-    state.WithOwner(m.owner) {
-        m.Renders += 1
-        let nodes = state.Untracked { root().Nodes() }
-        for n in nodes { m.build(n, into: parent, before: nil) }
+///
+/// focus, where given, is how Focus moves the page's focus
+/// (web.Page.Focus).
+public func Mount(_ root: () -> Node, into doc: dom.Document, at parent: html.Node, styles: (([string]) -> void)? = nil, focus: ((html.Node?) -> void)? = nil) -> Mounted {
+    let m = Mounted(doc: doc, parent: parent, styles: styles, focus: focus)
+    m.hosting {
+        state.WithOwner(m.owner) {
+            m.Renders += 1
+            let nodes = state.Untracked { root().Nodes() }
+            for n in nodes { m.build(n, into: parent, before: nil) }
+        }
+        m.giveSheets()
+        runMounted()
     }
-    m.giveSheets()
     return m
+}
+
+// MARK: - Mounting
+
+/// The root whose code is running: being built, or handling an event.
+var host: Mounted? = nil
+/// OnMount's work, waiting for the nodes to be in the document.
+var toMount: [() -> void] = []
+
+/// Runs f once the nodes the component running now makes are in the
+/// document -- to focus a field, measure a box, start a timer. What f
+/// makes, and OnCleanup inside it, belong to the component: they end
+/// when it is gone.
+///
+///     @state.State var field: html.Node? = nil
+///     OnMount { component.Focus(field) }
+///     return <input ref={$field} />
+public func OnMount(_ f: () -> void) {
+    let owner = state.CurrentOwner()
+    let at = frames
+    toMount.append({
+        let prev = frames
+        frames = at
+        if let o = owner {
+            state.WithOwner(o) { state.Untracked { f() } }
+        } else {
+            state.Untracked { f() }
+        }
+        frames = prev
+    })
+}
+
+func runMounted() {
+    while !toMount.isEmpty {
+        let f = toMount.removeFirst()
+        f()
+    }
+}
+
+/// Moves the page's focus to node -- a field a ref holds -- or, given
+/// nil, takes it away. Called from a component's code: OnMount, a
+/// handler, an effect.
+public func Focus(_ node: html.Node?) {
+    if let h = host, let f = h.focus { f(node) }
 }
