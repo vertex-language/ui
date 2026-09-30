@@ -1,0 +1,98 @@
+// A .vsx app in a window: the RFC's counter, and a small task list with
+// add, toggle, filter and clear. Every click and keystroke goes through
+// the page's own events to the handlers written below; demo.vss styles it.
+//
+//     vsc run vsx-demo
+//     vsc run vsx-demo -- --snapshot out.png
+package main
+
+import (
+    "reactive"
+    "ui/app"
+    "ui/component"
+    "web/dom"
+)
+
+func Counter(start: int = 0) -> Node {
+    @reactive.State var count = start
+    return (
+        <section class="card">
+            <h2>Counter</h2>
+            <p class="big">{count}</p>
+            <div class="row">
+                <button onClick={count -= 1}>−</button>
+                <button class="primary" onClick={count += 1}>Clicked {count} times</button>
+                <button onClick={count = start}>Reset</button>
+            </div>
+            <p class="hint" class:warn={count >= 10}>{count >= 10 ? "That's plenty." : "Click the blue button."}</p>
+        </section>
+    )
+}
+
+struct Todo {
+    let ID: int
+    var Title: string
+    var Done: bool
+}
+
+enum Filter { case all, active, done }
+
+func Tasks() -> Node {
+    @reactive.State var todos: [Todo] = [Todo(ID: 1, Title: "Try the counter", Done: true),
+                                         Todo(ID: 2, Title: "Add a task below", Done: false)]
+    @reactive.State var draft = ""
+    @reactive.State var filter = Filter.all
+    @reactive.State var nextID = 3
+
+    let visible = todos.filter { t in
+        switch filter {
+        case .all: return true
+        case .active: return !t.Done
+        case .done: return t.Done
+        }
+    }
+    let left = todos.filter { !$0.Done }.count
+
+    return (
+        <section class="card">
+            <h2>Tasks</h2>
+            <form onSubmit={e in
+                e.PreventDefault()
+                if !draft.isEmpty {
+                    todos.append(Todo(ID: nextID, Title: draft, Done: false))
+                    nextID += 1
+                    draft = ""
+                }
+            }>
+                <input placeholder="What needs doing? (Enter to add)" value={$draft} />
+            </form>
+            <ul>
+                <For each={visible} key={t in t.ID}>
+                    {t in
+                        <li class:done={t.Done} onClick={
+                            for i in 0..<todos.count where todos[i].ID == t.ID { todos[i].Done = !todos[i].Done }
+                        }>
+                            <span class="box">{t.Done ? "✓" : ""}</span>{t.Title}
+                        </li>
+                    }
+                </For>
+            </ul>
+            <div class="row small">
+                <span>{left} left</span>
+                <button class:on={filter == .all} onClick={filter = .all}>All</button>
+                <button class:on={filter == .active} onClick={filter = .active}>Active</button>
+                <button class:on={filter == .done} onClick={filter = .done}>Done</button>
+                <button onClick={todos = todos.filter { !$0.Done }}>Clear done</button>
+            </div>
+        </section>
+    )
+}
+
+func main() async -> int32 {
+    return await app.Run(title: "Vertex .vsx demo", width: 520, height: 720) {
+        <main>
+            <Counter start={5} />
+            <Tasks />
+        </main>
+    }
+}

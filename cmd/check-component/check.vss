@@ -1,0 +1,6 @@
+/* The check program's styles: package main's. */
+package main
+
+:root { --kit-accent: rgb(9, 9, 9); }
+
+.title { color: rgb(1, 2, 3); }

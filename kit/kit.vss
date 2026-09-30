@@ -1,0 +1,20 @@
+/* The kit's styles. Its tokens, registered with @property, are its public
+   styling API: a program sets them on :root to theme the kit, and where it
+   does not, their initial values stand. */
+package kit
+
+@property --kit-accent { syntax: "<color>"; inherits: true; initial-value: rgb(0, 0, 255); }
+@property --kit-radius { syntax: "<length>"; inherits: true; initial-value: 6px; }
+
+.card {
+    border: 1px solid #ccc;
+    border-radius: var(--kit-radius);
+    padding: 8px;
+    .title { color: rgb(200, 0, 0); margin: 0 0 4px; }
+}
+
+.button {
+    background: var(--kit-accent);
+    color: white;
+    border-radius: var(--kit-radius);
+}

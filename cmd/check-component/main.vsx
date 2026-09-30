@@ -1,0 +1,242 @@
+// Markup mounted into a real page, headless: rendered, clicked and typed
+// into through the page's own input, and drawn. Given a folder
+// (vsc run check-component -- out/), writes before.png and after.png
+// there, to look at.
+package main
+
+import (
+    "fs"
+    "image"
+    "image/draw"
+    "image/png"
+    "reactive"
+    "ui/component"
+    "ui/kit"
+    "web"
+    "web/dom"
+    "web/html"
+)
+
+var failures = 0
+
+func check(_ ok: bool, _ what: string) {
+    if ok {
+        print("ok    \(what)")
+    } else {
+        print("FAIL  \(what)")
+        failures += 1
+    }
+}
+
+func Counter(start: int) -> component.Node {
+    @reactive.State var count = start
+    return (
+        <div class="counter">
+            <h1>Clicked {count} times</h1>
+            <button id="inc" onClick={count += 1}>Add one</button>
+            <p class="note" class:big={count >= 7}>{count >= 7 ? "that's a lot" : "keep going"}</p>
+        </div>
+    )
+}
+
+func Greeter() -> component.Node {
+    @reactive.State var name = ""
+    return (
+        <form onSubmit={e in e.PreventDefault()}>
+            <input id="name" placeholder="Your name" value={$name} />
+            <p id="hello">{name.isEmpty ? "Who's there?" : "Hello, \(name)!"}</p>
+        </form>
+    )
+}
+
+struct Todo {
+    let ID: int
+    var Title: string
+    var Done: bool
+}
+
+func Tasks() -> component.Node {
+    @reactive.State var todos: [Todo] = []
+    @reactive.State var draft = ""
+    @reactive.State var onlyDone = false
+    @reactive.State var nextID = 1
+    return (
+        <section id="tasks">
+            <form onSubmit={e in
+                e.PreventDefault()
+                if !draft.isEmpty {
+                    todos.append(Todo(ID: nextID, Title: draft, Done: false))
+                    nextID += 1
+                    draft = ""
+                }
+            }>
+                <input id="draft" value={$draft} />
+            </form>
+            <ul>
+                <For each={todos.filter { !onlyDone || $0.Done }} key={t in t.ID}>
+                    {t in <li class:done={t.Done} onClick={
+                        for i in 0..<todos.count where todos[i].ID == t.ID { todos[i].Done = !todos[i].Done }
+                    }>{t.Title}</li>}
+                </For>
+            </ul>
+            <button id="only" onClick={onlyDone = !onlyDone}>{onlyDone ? "All" : "Done only"}</button>
+            <button id="clear" onClick={todos = todos.filter { !$0.Done }}>Clear done</button>
+        </section>
+    )
+}
+
+@MainActor
+func snapshot(_ page: web.Page, _ name: string) {
+    let args = CommandLine.arguments
+    if args.count < 2 { return }
+    let path = args[1].hasSuffix("/") ? args[1] + name : args[1] + "/" + name
+    var pixels = [uint8](repeating: 0, count: 480 * 320 * 4)
+    page.Draw(into: &pixels, width: 480, height: 320, scale: 1)
+    try? fs.WriteFile(fs.Path(path), png.Encode(image.RGBA(width: 480, height: 320, pixels: pixels)))
+}
+
+/// A point the page hit-tests to the element or something inside it.
+@MainActor
+func pointOn(_ page: web.Page, _ n: html.Node) -> draw.Point? {
+    var y: float32 = 1
+    while y < 320 {
+        var x: float32 = 1
+        while x < 480 {
+            let p = draw.Point(x, y)
+            if let hit = page.ElementAt(p), dom.Contains(n, hit) { return p }
+            x += 4
+        }
+        y += 4
+    }
+    return nil
+}
+
+@MainActor
+func click(_ page: web.Page, _ selector: string) {
+    guard let n = page.QuerySelector(selector), let p = pointOn(page, n) else {
+        check(false, "\(selector) is on the page")
+        return
+    }
+    reactive.Batch {
+        _ = page.Handle(.pointerDown(web.Pointer(p)))
+        _ = page.Handle(.pointerUp(web.Pointer(p)))
+    }
+}
+
+@MainActor
+func main() -> int32 {
+    let page = web.Page()
+    page.SetViewportSize(draw.Size(480, 320))
+    page.LoadHTML("""
+    <!doctype html><html><head><style>
+    body { margin: 0; font: 16px system-ui; }
+    .counter { padding: 16px; }
+    button { padding: 6px 12px; font-size: 16px; }
+    .note.big { color: #c0392b; font-weight: 700; }
+    form { padding: 0 16px; }
+    </style></head><body></body></html>
+    """)
+    let doc = page.Document!
+    let body = doc.Tree.ElementsByTagName("body").first!
+    let mounted = component.Mount({ component.Fragment([Counter(start: 5), Greeter()]) }, into: doc, at: body)
+    snapshot(page, "before.png")
+
+    let h1 = page.QuerySelector("h1")!
+    check(h1.InnerText() == "Clicked 5 times", "the counter renders its start (got '\(h1.InnerText())')")
+    click(page, "#inc")
+    check(page.QuerySelector("h1")!.InnerText() == "Clicked 6 times", "a click on the button runs its handler, and the page shows the new count")
+    check(page.QuerySelector("h1")!.Id == h1.Id, "the heading is patched in place, not rebuilt")
+    click(page, "#inc")
+    check(page.QuerySelector(".note")!.InnerText() == "that's a lot", "a second click crosses the threshold")
+    check(page.QuerySelector(".note")!.HasClass("big"), "and class:big follows the count")
+
+    click(page, "#name")
+    let field = page.QuerySelector("#name")!
+    reactive.Batch { _ = page.Handle(.text("Ada")) }
+    check(page.QuerySelector("#hello")!.InnerText() == "Hello, Ada!", "typing writes the bound state, and the greeting follows (got '\(page.QuerySelector("#hello")!.InnerText())')")
+    check(page.QuerySelector("#name")!.Id == field.Id && page.FocusedElement?.Id == field.Id, "the field keeps its element and its focus while typing")
+    snapshot(page, "after.png")
+
+    // The task list, in a page of its own.
+    let tp = web.Page()
+    tp.SetViewportSize(draw.Size(480, 320))
+    tp.LoadHTML("<!doctype html><html><head><style>body { margin: 0; font: 16px system-ui } li { padding: 4px }</style></head><body></body></html>")
+    _ = component.Mount({ Tasks() }, into: tp.Document!, at: tp.Document!.Tree.ElementsByTagName("body").first!)
+    click(tp, "#draft")
+    reactive.Batch { _ = tp.Handle(.text("milk")) }
+    reactive.Batch { _ = tp.Handle(.keyDown(web.Key(Key: "Enter", Code: "Enter"))) }
+    reactive.Batch { _ = tp.Handle(.text("eggs")) }
+    reactive.Batch { _ = tp.Handle(.keyDown(web.Key(Key: "Enter", Code: "Enter"))) }
+    let items = tp.QuerySelectorAll("li")
+    check(items.count == 2 && items[0].InnerText() == "milk" && items[1].InnerText() == "eggs", "Enter in the field submits the form, and its handler adds a task (got \(items.count))")
+    check(tp.ValueOf(tp.QuerySelector("#draft")!) == "", "the handler clears the draft, and the field shows it cleared (got '\(tp.ValueOf(tp.QuerySelector("#draft")!))')")
+    click(tp, "li")
+    check(tp.QuerySelector("li")!.HasClass("done"), "a click on a task toggles it")
+    click(tp, "#only")
+    check(tp.QuerySelectorAll("li").count == 1, "the filter shows the done task alone")
+    click(tp, "#only")
+    click(tp, "#clear")
+    let left = tp.QuerySelectorAll("li")
+    check(left.count == 1 && left[0].InnerText() == "eggs", "clearing done tasks leaves the rest")
+    check(mounted.Renders >= 3, "each change rendered the root again (\(mounted.Renders) renders)")
+
+    // Styles: package main's (check.vss) and the kit's (ui/kit/kit.vss).
+    let sp = web.Page()
+    sp.SetViewportSize(draw.Size(480, 320))
+    sp.LoadHTML("<!doctype html><html><head></head><body></body></html>")
+    var given: [string] = []
+    _ = component.Mount({
+        <main>
+            <p class="title" id="own">the program's title</p>
+            <kit.Card title="the kit's title">
+                <kit.Button label="Go" onPress={} />
+            </kit.Card>
+        </main>
+    }, into: sp.Document!, at: sp.Document!.Tree.ElementsByTagName("body").first!, styles: { sheets in
+        given = sheets
+        sp.SetStyleSheets(sheets)
+    })
+    check(given.count == 2 && given[0].contains("@layer kit") && given[1].contains("@layer main"),
+          "the page is given the kit's sheet, then the program's (\(given.count) sheets)")
+    var spx = [uint8](repeating: 0, count: 480 * 320 * 4)
+    sp.Draw(into: &spx, width: 480, height: 320, scale: 1)
+    let own = sp.BoxFor(sp.QuerySelector("#own")!)!.Style.Color
+    check(own == draw.Color(1, 2, 3), "the program's .title is the program's (got \(own.R),\(own.G),\(own.B))")
+    let kitTitle = sp.BoxFor(sp.QuerySelector("h3")!)!.Style.Color
+    check(kitTitle == draw.Color(200, 0, 0), "the kit's .title is the kit's: neither package's rules reach the other's elements (got \(kitTitle.R),\(kitTitle.G),\(kitTitle.B))")
+    let accent = sp.BoxFor(sp.QuerySelector("button")!)!.Style.BackgroundColor
+    check(accent == draw.Color(9, 9, 9), "the program themes the kit through its token (got \(accent.R),\(accent.G),\(accent.B))")
+    check(sp.QuerySelector("section")!.GetAttribute("data-p") == "kit" && sp.QuerySelector("#own")!.GetAttribute("data-p") == "main",
+          "each element is stamped with its package")
+
+    // A token set on an element, in markup, reaches what is under it.
+    let tp2 = web.Page()
+    tp2.SetViewportSize(draw.Size(200, 100))
+    tp2.LoadHTML("<!doctype html><html><head></head><body></body></html>")
+    _ = component.Mount({
+        <div style:--kit-accent="rgb(0, 128, 0)"><kit.Button label="Go" onPress={} /></div>
+    }, into: tp2.Document!, at: tp2.Document!.Tree.ElementsByTagName("body").first!, styles: { sheets in tp2.SetStyleSheets(sheets) })
+    var tpx = [uint8](repeating: 0, count: 200 * 100 * 4)
+    tp2.Draw(into: &tpx, width: 200, height: 100, scale: 1)
+    let local = tp2.BoxFor(tp2.QuerySelector("button")!)!.Style.BackgroundColor
+    check(local == draw.Color(0, 128, 0), "style:--kit-accent on an element themes the kit under it (got \(local.R),\(local.G),\(local.B))")
+    check(kit.Tokens.Accent.Name == "--kit-accent" && kit.Tokens.Radius.Syntax == "<length>", "the kit's tokens are its generated Tokens")
+
+    // Where nothing themes the kit, its tokens' initial values stand.
+    let dp = web.Page()
+    dp.SetViewportSize(draw.Size(200, 100))
+    dp.LoadHTML("<!doctype html><html><head></head><body></body></html>")
+    _ = component.Mount({ kit.Button(label: "Go", onPress: {}) }, into: dp.Document!,
+                        at: dp.Document!.Tree.ElementsByTagName("body").first!, styles: { sheets in dp.SetStyleSheets(sheets) })
+    var dpx = [uint8](repeating: 0, count: 200 * 100 * 4)
+    dp.Draw(into: &dpx, width: 200, height: 100, scale: 1)
+    let fallback = dp.BoxFor(dp.QuerySelector("button")!)!.Style.BackgroundColor
+    check(fallback == draw.Color(0, 0, 255), "unthemed, the kit's token is its @property initial value (got \(fallback.R),\(fallback.G),\(fallback.B))")
+
+    if failures > 0 {
+        print("\(failures) FAILED")
+        return 1
+    }
+    print("ALL COMPONENT CHECKS PASSED")
+    return 0
+}

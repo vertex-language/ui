@@ -1,0 +1,25 @@
+/* The demo's styles: package main's, so they reach the whole page. */
+package main
+
+:root { --accent: #2f6fec; }
+body { background: #f4f5f7; color: #1d2330; }
+main { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+.card { background: white; border-radius: 10px; padding: 16px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+h2 { margin: 0 0 8px; font-size: 15px; color: #5b6475; text-transform: uppercase; letter-spacing: .05em; }
+.big { font-size: 44px; font-weight: 700; margin: 4px 0 12px; }
+.row { display: flex; gap: 8px; align-items: center; }
+button {
+    font: inherit; padding: 6px 12px; border: 1px solid #c9ced8; border-radius: 6px; background: #fff;
+    &:hover { border-color: #8d95a5; }
+    &.primary { background: var(--accent); border-color: var(--accent); color: white; }
+    &.on { background: #1d2330; border-color: #1d2330; color: white; }
+}
+.hint { color: #5b6475; margin: 12px 0 0; }
+.hint.warn { color: #c0392b; font-weight: 700; }
+input { font: inherit; width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #c9ced8; border-radius: 6px; }
+ul { list-style: none; padding: 0; margin: 12px 0; }
+li { padding: 8px 4px; border-bottom: 1px solid #eef0f3; cursor: pointer; }
+li.done { color: #9aa1ad; text-decoration: line-through; }
+.box { display: inline-block; width: 16px; height: 16px; border: 1px solid #c9ced8; border-radius: 4px; margin-right: 10px; text-align: center; line-height: 16px; font-size: 12px; color: var(--accent); }
+.small { font-size: 13px; }
+.small span { flex: 1; color: #5b6475; }

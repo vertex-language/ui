@@ -27,8 +27,12 @@ vsc run browser -- https://github.com
 vsc run hello
 vsc run paint
 
+# A .vsx app: markup, state and handlers, in a window.
+vsc run vsx-demo
+
 # The checks.
 vsc run check-webview
+vsc run check-component
 vsc run lifecycle
 ```
 
@@ -40,6 +44,41 @@ vsc run lifecycle
 | :--- | :--- | :--- |
 | **`ui/window`** | A native window: creation, an async event queue, a frame clock, a pixel surface, cursors, the clipboard. | `window.cpp` (`ui.window`): Cocoa in `window_darwin.mm`, NativeActivity in `window_android.cpp` |
 | **`ui/webview`** | A `web.Page` in a window: the part of the window it covers, the window's events turned into the page's input, the page's cursor, and the system clipboard. | none |
+| **`ui/component`** | What `.vsx` markup lowers to (`Element`, `Attribute`, `Fragment`, `For`, `Node`), and `Mount`, which puts a root into a `dom.Document` and patches it when a signal it read changes. | none |
+| **`ui/app`** | `app.Run`: a window whose page holds a mounted `.vsx` root, with events reaching its handlers. | none |
+
+---
+
+## A .vsx app
+
+Markup in a `.vsx` file is Vertex with JSX (the design is `proposed_vsx.md`).
+A component is a function; state is `@reactive.State`; a handler is the
+braces in an `on…` attribute.
+
+```vsx
+package main
+
+import (
+    "reactive"
+    "ui/app"
+    "ui/component"
+    "web/dom"
+)
+
+func Counter(start: int = 0) -> Node {
+    @reactive.State var count = start
+    return <button onClick={count += 1}>Clicked {count} times</button>
+}
+
+func main() async -> int32 {
+    return await app.Run(title: "Counter", width: 360, height: 200) { <Counter start={5} /> }
+}
+```
+
+A click reaches the button through the page's own events (`web/dom`), the
+handler writes `count`, and the root is rendered again and the page
+patched in place once the event is done. `vsc run vsx-demo -- --snapshot
+out.png` draws the first frame to a PNG and quits.
 
 ---
 

@@ -1,0 +1,27 @@
+// Package kit is a few styled components: the example of a library with
+// styles of its own (kit.vss), which reach its components and nothing
+// else, and which a program themes through the kit's tokens.
+//
+// Its signatures name component.Node, not Node: vsc resolves an imported
+// package's names in the program's scope, where Node may be another's.
+package kit
+
+import (
+    "ui/component"
+    "web/dom"
+)
+
+/// A titled box around its children.
+public func Card(title: string, children: component.Children) -> component.Node {
+    return (
+        <section class="card">
+            <h3 class="title">{title}</h3>
+            {children()}
+        </section>
+    )
+}
+
+/// A button in the kit's accent color.
+public func Button(label: string, onPress: () -> void) -> component.Node {
+    return <button class="button" onClick={onPress()}>{label}</button>
+}
