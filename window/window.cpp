@@ -103,6 +103,7 @@ export void winSetSize(int32_t window, double width, double height) noexcept;
 export void winSetMinSize(int32_t window, double width, double height) noexcept;
 export void winSetVisible(int32_t window, int32_t visible) noexcept;
 export void winSetFullscreen(int32_t window, int32_t fullscreen) noexcept;
+export void winSetScaling(int32_t window, int32_t mode) noexcept;
 export void winSetCursor(int32_t window, int32_t cursor) noexcept; // 6: hidden
 
 // A cursor from width x height premultiplied RGBA8 pixels, top row first,

@@ -29,6 +29,19 @@ public func (s: borrowing Surface) Present(_ pixels: borrowing [uint8], size: Pi
     }
 }
 
+/// Content scaling mode for a surface.
+public enum ScalingMode: int32 {
+    case aspectFit = 0
+    case stretch = 1
+    case center = 2
+    case topLeft = 3
+}
+
+/// Sets the surface content scaling mode.
+public func (s: borrowing Surface) SetScaling(_ mode: ScalingMode) {
+    winSetScaling(s.window, mode.rawValue)
+}
+
 /// What kind of native objects `RawParts` hands back.
 public enum SurfaceKind {
     /// An NSWindow and the NSView that is its content.

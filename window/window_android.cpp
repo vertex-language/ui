@@ -640,6 +640,7 @@ void winSetSize(int32_t window, double width, double height) { (void)window; (vo
 void winSetMinSize(int32_t window, double width, double height) { (void)window; (void)width; (void)height; }
 void winSetVisible(int32_t window, int32_t visible) { (void)window; (void)visible; }
 void winSetFullscreen(int32_t window, int32_t fullscreen) { (void)window; (void)fullscreen; }
+void winSetScaling(int32_t window, int32_t mode) noexcept { (void)window; (void)mode; }
 void winSetCursor(int32_t window, int32_t cursor) { (void)window; (void)cursor; }
 
 int32_t winSetCursorImage(int32_t window, const uint8_t* rgba, int32_t width, int32_t height,

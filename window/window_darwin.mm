@@ -609,7 +609,9 @@ int32_t winCreate(const char* title, double width, double height, int32_t flags)
         CWView* view = [[CWView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
         view.owner = w;
         [view setWantsLayer:YES];
-        [[view layer] setContentsGravity:kCAGravityTopLeft];
+        [[view layer] setContentsGravity:kCAGravityResizeAspect];
+        [[view layer] setMagnificationFilter:kCAFilterNearest];
+        [[view layer] setBackgroundColor:CGColorGetConstantColor(kCGColorBlack)];
         w.view = view;
         [nsw setContentView:view];
         [nsw setDelegate:w];
@@ -765,6 +767,33 @@ void winSetFullscreen(int32_t window, int32_t fullscreen) noexcept {
     BOOL now = ([w.window styleMask] & NSWindowStyleMaskFullScreen) != 0;
     if ((fullscreen != 0) != now)
         [w.window toggleFullScreen:nil];
+}
+
+void winSetScaling(int32_t window, int32_t mode) noexcept {
+    @autoreleasepool {
+        CWWindow* w = windowOf(window);
+        if (w == nil)
+            return;
+        CALayer* layer = [w.view layer];
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        switch (mode) {
+        case 1:
+            [layer setContentsGravity:kCAGravityResize];
+            break;
+        case 2:
+            [layer setContentsGravity:kCAGravityCenter];
+            break;
+        case 3:
+            [layer setContentsGravity:kCAGravityTopLeft];
+            break;
+        case 0:
+        default:
+            [layer setContentsGravity:kCAGravityResizeAspect];
+            break;
+        }
+        [CATransaction commit];
+    }
 }
 
 void winSetCursor(int32_t window, int32_t cursor) noexcept {
