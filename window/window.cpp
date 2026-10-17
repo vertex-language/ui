@@ -60,6 +60,7 @@ export namespace EventKind {
     constexpr int32_t frame = 15;  // time, interval: seconds
     constexpr int32_t themeChanged = 16;  // code: 0 light, 1 dark
     constexpr int32_t modifiersChanged = 17;  // modifiers
+    constexpr int32_t relativeMotion = 18;  // x, y: how far the pointer moved, in points, while locked
 }
 
 // Modifier bits.
@@ -103,6 +104,9 @@ export void winSetSize(int32_t window, double width, double height) noexcept;
 export void winSetMinSize(int32_t window, double width, double height) noexcept;
 export void winSetVisible(int32_t window, int32_t visible) noexcept;
 export void winSetFullscreen(int32_t window, int32_t fullscreen) noexcept;
+// Locked: the pointer is hidden and held still over the window, and its
+// movement arrives as relativeMotion. Released while the window isn't key.
+export void winSetPointerLocked(int32_t window, int32_t locked) noexcept;
 export void winSetScaling(int32_t window, int32_t mode) noexcept;
 export void winSetCursor(int32_t window, int32_t cursor) noexcept; // 6: hidden
 

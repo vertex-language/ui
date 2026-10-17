@@ -41,6 +41,8 @@ public final class Mounted {
     // MARK: - Making nodes real
 
     func build(_ n: Node, into parent: html.Node, before: html.Node?) {
+        buildDepth += 1
+        defer { buildDepth -= 1 }
         if n.isText {
             doc.InsertBefore(parent, doc.CreateTextNode(n.Text), before)
             return
@@ -54,6 +56,7 @@ public final class Mounted {
             return
         }
         if n.Tag.isEmpty {
+            if let s = n.sheet { note(s) }
             for c in n.Children { build(c, into: parent, before: before) }
             return
         }
@@ -83,6 +86,13 @@ public final class Mounted {
         for give in n.refs {
             give(el)
             state.OnCleanup { give(nil) }
+        }
+        // `autofocus`: the element takes focus once it is in, as a page's
+        // first autofocus element does.
+        for (name, _) in n.attrs where name == "autofocus" {
+            let me = self
+            toMount.append({ me.focus?(el) })
+            break
         }
     }
 
@@ -284,6 +294,7 @@ final class RowTable {
 /// (web.Page.Focus).
 public func Mount(_ root: () -> Node, into doc: dom.Document, at parent: html.Node, styles: (([string]) -> void)? = nil, focus: ((html.Node?) -> void)? = nil) -> Mounted {
     let m = Mounted(doc: doc, parent: parent, styles: styles, focus: focus)
+    lastMounted = m
     m.hosting {
         state.WithOwner(m.owner) {
             m.Renders += 1
@@ -300,6 +311,9 @@ public func Mount(_ root: () -> Node, into doc: dom.Document, at parent: html.No
 
 /// The root whose code is running: being built, or handling an event.
 var host: Mounted? = nil
+/// The root mounted last, for Focus from code no root is running (a
+/// task, a timer).
+weak var lastMounted: Mounted? = nil
 /// OnMount's work, waiting for the nodes to be in the document.
 var toMount: [() -> void] = []
 
@@ -326,7 +340,13 @@ public func OnMount(_ f: () -> void) {
     })
 }
 
+/// How deep the build in progress is. OnMount's work waits for the
+/// outermost to end: a live region or a <For> inside an element is built
+/// before the element is in the document and its refs are given.
+var buildDepth = 0
+
 func runMounted() {
+    if buildDepth > 0 { return }
     while !toMount.isEmpty {
         let f = toMount.removeFirst()
         f()
@@ -335,7 +355,7 @@ func runMounted() {
 
 /// Moves the page's focus to node -- a field a ref holds -- or, given
 /// nil, takes it away. Called from a component's code: OnMount, a
-/// handler, an effect.
+/// handler, an effect; from a task, it is the last mounted root's page.
 public func Focus(_ node: html.Node?) {
-    if let h = host, let f = h.focus { f(node) }
+    if let h = host ?? lastMounted, let f = h.focus { f(node) }
 }

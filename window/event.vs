@@ -22,6 +22,10 @@ public enum Event {
     /// The pointer left the window's content area.
     case pointerLeft
     case scrolled(Scroll)
+    /// How far the pointer moved, in points (y down), while it is locked
+    /// (`SetPointerLocked`). A locked pointer sends this instead of
+    /// `pointerMoved`: it is held still, so it has no position to report.
+    case relativeMotion(Point)
 
     case keyDown(KeyEvent)
     case keyUp(KeyEvent)

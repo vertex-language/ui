@@ -189,7 +189,13 @@ static int32_t modifiersFor(NSEventModifierFlags f) {
 // resets the cursor (entering the view, moving over it); nil for the
 // system cursors.
 @property (nonatomic, strong) NSCursor* customCursor;
+// The program asked for the pointer locked, and whether it is right now
+// (it isn't while another window is key).
+@property (nonatomic) BOOL wantsLock;
+@property (nonatomic) BOOL locked;
 @end
+
+static void applyLock(CWWindow* w, BOOL lock);
 
 static NSMutableDictionary* windows;   // NSNumber id -> CWWindow
 static int32_t nextIdent = 1;
@@ -292,7 +298,23 @@ static void pushKind(CWWindow* w, int32_t kind, int32_t code, double x, double y
     push(self.owner, e);
 }
 
+// relative pushes how far the pointer moved, for a locked pointer: the
+// cursor itself stays put, so positions say nothing.
+- (BOOL)relative:(NSEvent*)event {
+    if (!self.owner.locked)
+        return NO;
+    Event e = {0};
+    e.kind = EventKind::relativeMotion;
+    e.x = [event deltaX];
+    e.y = [event deltaY];
+    e.modifiers = modifiersFor([event modifierFlags]);
+    push(self.owner, e);
+    return YES;
+}
+
 - (void)mouseMoved:(NSEvent*)e {
+    if ([self relative:e])
+        return;
     if (self.owner.customCursor != nil)
         [self.owner.customCursor set];
     [self pointer:e kind:EventKind::pointerMoved button:0];
@@ -307,9 +329,9 @@ static void pushKind(CWWindow* w, int32_t kind, int32_t code, double x, double y
     else
         [super cursorUpdate:e];
 }
-- (void)mouseDragged:(NSEvent*)e { [self pointer:e kind:EventKind::pointerMoved button:0]; }
-- (void)rightMouseDragged:(NSEvent*)e { [self pointer:e kind:EventKind::pointerMoved button:0]; }
-- (void)otherMouseDragged:(NSEvent*)e { [self pointer:e kind:EventKind::pointerMoved button:0]; }
+- (void)mouseDragged:(NSEvent*)e { if (![self relative:e]) [self pointer:e kind:EventKind::pointerMoved button:0]; }
+- (void)rightMouseDragged:(NSEvent*)e { if (![self relative:e]) [self pointer:e kind:EventKind::pointerMoved button:0]; }
+- (void)otherMouseDragged:(NSEvent*)e { if (![self relative:e]) [self pointer:e kind:EventKind::pointerMoved button:0]; }
 - (void)mouseDown:(NSEvent*)e { [self pointer:e kind:EventKind::pointerDown button:0]; }
 - (void)mouseUp:(NSEvent*)e { [self pointer:e kind:EventKind::pointerUp button:0]; }
 - (void)rightMouseDown:(NSEvent*)e { [self pointer:e kind:EventKind::pointerDown button:1]; }
@@ -460,10 +482,13 @@ static void pushKind(CWWindow* w, int32_t kind, int32_t code, double x, double y
 }
 
 - (void)windowDidBecomeKey:(NSNotification*)n {
+    if (self.wantsLock)
+        applyLock(self, YES);
     pushKind(self, EventKind::focusChanged, 1, 0, 0);
 }
 
 - (void)windowDidResignKey:(NSNotification*)n {
+    applyLock(self, NO);
     pushKind(self, EventKind::focusChanged, 0, 0, 0);
 }
 
@@ -767,6 +792,34 @@ void winSetFullscreen(int32_t window, int32_t fullscreen) noexcept {
     BOOL now = ([w.window styleMask] & NSWindowStyleMaskFullScreen) != 0;
     if ((fullscreen != 0) != now)
         [w.window toggleFullScreen:nil];
+}
+
+// applyLock holds the pointer still over the window's center, hidden, or
+// lets it go. Hiding is counted by AppKit, so it's done once per lock.
+static void applyLock(CWWindow* w, BOOL lock) {
+    if (lock == w.locked)
+        return;
+    w.locked = lock;
+    if (lock) {
+        NSRect frame = [w.window convertRectToScreen:[w.view convertRect:[w.view bounds] toView:nil]];
+        CGFloat top = NSMaxY([[[NSScreen screens] firstObject] frame]);
+        CGWarpMouseCursorPosition(CGPointMake(NSMidX(frame), top - NSMidY(frame)));
+        CGAssociateMouseAndMouseCursorPosition(false);
+        [NSCursor hide];
+    } else {
+        CGAssociateMouseAndMouseCursorPosition(true);
+        [NSCursor unhide];
+    }
+}
+
+void winSetPointerLocked(int32_t window, int32_t locked) noexcept {
+    @autoreleasepool {
+        CWWindow* w = windowOf(window);
+        if (w == nil)
+            return;
+        w.wantsLock = locked != 0;
+        applyLock(w, w.wantsLock && [w.window isKeyWindow]);
+    }
 }
 
 void winSetScaling(int32_t window, int32_t mode) noexcept {

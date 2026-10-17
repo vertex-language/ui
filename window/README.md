@@ -13,6 +13,22 @@ while let event = await win.WaitEvent() {
 }
 ```
 
+## Game input
+
+A first-person game wants the mouse, not the cursor. `SetPointerLocked(true)`
+hides the cursor and holds it still over the window; movement then arrives
+as `.relativeMotion(Point)`, in points with y down, instead of
+`.pointerMoved`. The lock is let go while another window has focus and
+taken back when this one gets it again. Unlock for menus and on Escape.
+
+```vertex
+case .pointerDown(_, _): win.SetPointerLocked(true)
+case .relativeMotion(let d): yaw -= d.X * 0.0025; pitch -= d.Y * 0.0025
+case .keyDown(let k) where k.Code == .escape: win.SetPointerLocked(false)
+```
+
+On Android the lock is a no-op for now.
+
 ## Types
 
 - **`WindowError`** (enum): Every way an operation in this package fails.
@@ -36,7 +52,7 @@ while let event = await win.WaitEvent() {
 - `func Window.Surface() -> Surface`: The window's surface.
 - `func Surface.Present(_ pixels: borrowing [uint8], size: PixelSize) throws`: Shows pixels: `size.Width * size.Height` of them, four bytes each -- red, green, blue, alpha, premultiplied -- top row first.
 - `func Surface.SetScaling(_ mode: ScalingMode)`: Sets the surface content scaling mode.
-- `func Surface.RawParts() -> (kind: SurfaceKind, window: uint64, view: uint64)`: The native objects behind the surface, for a renderer that binds its own swapchain to them and for nothing else.
+- `func Surface.RawParts() -> (kind: SurfaceKind, window: uint64, view: uint64)`: The native objects behind the surface, for a renderer that binds its own swapchain to them and for nothing else. `gpu.Layer.Attach` takes the view: frames drawn on the GPU are presented there without coming back to the host (`entity/run`'s `Window(…, present:, …)`).
 - `func Window.WaitEvent() async -> Event?`: Waits for the next event and returns it, or nil once the window is closed.
 - `func Window.PollEvent() -> Event?`: The next event if one is already queued, and nil if none is. Never waits.
 - and 14 more

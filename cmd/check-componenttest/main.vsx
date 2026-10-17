@@ -223,6 +223,30 @@ func Profile() -> Node {
     )
 }
 
+// A ref on an element holding a live region and a list: given before
+// OnMount runs, though the region and the list are built first.
+var refAtMount = "unset"
+func RefAroundLive() -> Node {
+    @state.State var el: component.Ref = nil
+    @state.State var items: [int] = [1, 2]
+    component.OnMount { refAtMount = el == nil ? "nil" : "set" }
+    return (
+        <div tabindex="0" ref={$el}>
+            {items.count}
+            <component.For each={items} key={i in i}>{i in <span>{i.Value}</span>}</component.For>
+        </div>
+    )
+}
+
+func AutoFocused() -> Node {
+    return (
+        <form>
+            <input id="first" />
+            <input id="second" autofocus />
+        </form>
+    )
+}
+
 @MainActor
 func main() async -> int32 {
     // Refs, OnMount and Focus.
@@ -314,6 +338,24 @@ func main() async -> int32 {
     // Recorded on the first run (delete the file to record it again);
     // run from ui/, as `vsc run check-componenttest` is.
     check(px.Matches(golden: "cmd/check-componenttest/testdata/tasks.png"), "the pixels are the golden image's")
+
+    // OnMount sees refs whatever is inside the element.
+    _ = componenttest.Mount(width: 200, height: 100) { <RefAroundLive /> }
+    check(refAtMount == "set", "a ref around a live region and a list is set when OnMount runs (\(refAtMount))")
+
+    // autofocus focuses its element once mounted.
+    let af = componenttest.Mount(width: 200, height: 100) { <AutoFocused /> }
+    check(af.Page.FocusedElement === af.Query("#second").First, "autofocus takes focus on mount")
+
+    // Styled: a fragment carrying a sheet stays a node, so the mount sees
+    // its sheet.
+    let sheet = component.Sheet(package: "probe", css: "@layer probe { .probe-marker { color: red } }", after: [])
+    let styled = component.Styled(sheet, component.Text("x"))
+    check(styled.Nodes().count == 1 && styled.Nodes()[0] === styled, "a styled fragment is kept whole")
+    var given: [string] = []
+    let doc = componenttest.Mount(width: 100, height: 100) { component.Styled(sheet, <p>styled</p>) }
+    given = doc.Page.ProgramStyleSheets
+    check(given.contains { $0.contains("probe-marker") }, "and its sheet reaches the page")
 
     if failures > 0 {
         print("\(failures) FAILED")

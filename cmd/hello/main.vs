@@ -16,6 +16,7 @@ func describe(_ e: window.Event) -> string {
     case .pointerUp(_, _): return "pointer up"
     case .pointerLeft: return "pointer left"
     case .scrolled(let s): return "scrolled \(s.Delta.X),\(s.Delta.Y)"
+    case .relativeMotion(_): return ""
     case .keyDown(let k): return "key down \(k.Key)\(k.Repeat ? " (repeat)" : "")"
     case .keyUp(let k): return "key up \(k.Key)"
     case .modifiersChanged(_): return ""

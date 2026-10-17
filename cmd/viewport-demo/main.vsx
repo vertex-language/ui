@@ -1,0 +1,77 @@
+// viewport-demo: a .vsx page with a panel of sliders beside a viewport
+// the program draws itself: the shape of an editor, without the editor.
+// The sliders steer what the viewport draws; it animates while "Live" is
+// on.
+//
+//     vsc run viewport-demo
+//     VSX_TRACE=1 VSX_QUIT_AFTER=5 vsc run viewport-demo   # what each frame costs, then quit
+package main
+
+import (
+    "ui/app"
+    "ui/component"
+    "ui/state"
+    "ui/viewport"
+    "web/dom"
+)
+
+func Demo() -> Node {
+    var hue = state.Signal(float32(0.6))
+    var live = state.Signal(true)
+    var handle: viewport.Handle? = nil
+    var rows: [any component.Renderable] = []
+    for i in 0..<40 {
+        rows.append(
+            <div class="row">
+                <span>Slider {i + 1}</span>
+                <input type="range" min="0" max="1" step="0.01" value={"\(hue.Value)"} onInput={e in
+                    hue.Value = float32(e.Value) ?? 0
+                    handle?.Invalidate()
+                } />
+            </div>
+        )
+    }
+    let paint: viewport.Draw = { w, h, t in
+        // A moving gradient: cheap, so the page and the plumbing are what
+        // a frame costs.
+        var px = [uint8](repeating: 255, count: w * h * 4)
+        let shift = live.Peek() ? int(t * 60) : 0
+        let base = int(hue.Peek() * 255)
+        for y in 0..<h {
+            let row = y * w * 4
+            let g = uint8((y * 255 / max(1, h) + shift) & 255)
+            var x = 0
+            while x < w {
+                let o = row + x * 4
+                px[o] = uint8(base)
+                px[o + 1] = g
+                px[o + 2] = uint8((x * 255 / max(1, w)) & 255)
+                x += 1
+            }
+        }
+        handle?.Live = live.Peek()
+        return px
+    }
+    return (
+        <div class="app">
+            <aside>
+                <button onClick={
+                    live.Value = !live.Value
+                    handle?.Invalidate()
+                }>{live.Value ? "Live: on" : "Live: off"}</button>
+                {component.Fragment(rows)}
+            </aside>
+            <main>
+                {viewport.Viewport(class: "view", live: true, handle: { h in handle = h }, paint)}
+                <div class="toolbar"><button onClick={
+                    live.Value = !live.Value
+                    handle?.Invalidate()
+                }>Over the view: {live.Value ? "pause" : "play"}</button></div>
+            </main>
+        </div>
+    )
+}
+
+func main() async -> int32 {
+    return await app.Run(title: "viewport-demo", width: 1100, height: 700) { <Demo /> }
+}

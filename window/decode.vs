@@ -78,6 +78,7 @@ func decode(_ id: int32, _ kind: int32) -> Event? {
     case 15: return .frame(Frame(Time: winEventTime(id), Interval: winEventInterval(id)))
     case 16: return .themeChanged(winEventCode(id) == 1 ? .dark : .light)
     case 17: return .modifiersChanged(modifiersFrom(winEventModifiers(id)))
+    case 18: return .relativeMotion(Point(float32(winEventX(id)), float32(winEventY(id))))
     default: return nil
     }
 }

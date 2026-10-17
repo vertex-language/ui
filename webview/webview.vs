@@ -70,6 +70,10 @@ public final class WebView {
     /// scrolling, and keys while something in the page has focus are
     /// handled; the rest is ignored and left to the host.
     public func Handle(_ event: window.Event) -> web.EventResult {
+        if case .modifiersChanged(let m) = event {
+            Page.SetModifiers(pageModifiers(m))
+            return .ignored
+        }
         guard let input = Input(event) else { return .ignored }
         return Page.Handle(input)
     }
@@ -81,13 +85,13 @@ public final class WebView {
         case .pointerMoved(let p):
             return .pointerMoved(local(p.Position))
         case .pointerDown(let p, let button):
-            return .pointerDown(web.Pointer(local(p.Position), button: pageButton(button), clicks: p.Clicks))
+            return .pointerDown(web.Pointer(local(p.Position), button: pageButton(button), clicks: p.Clicks, modifiers: pageModifiers(p.Modifiers)))
         case .pointerUp(let p, let button):
-            return .pointerUp(web.Pointer(local(p.Position), button: pageButton(button), clicks: p.Clicks))
+            return .pointerUp(web.Pointer(local(p.Position), button: pageButton(button), clicks: p.Clicks, modifiers: pageModifiers(p.Modifiers)))
         case .pointerLeft:
             return .pointerLeft
         case .scrolled(let s):
-            return .wheel(web.Wheel(draw.Point(s.Delta.X, s.Delta.Y), precise: s.Precise))
+            return .wheel(web.Wheel(draw.Point(s.Delta.X, s.Delta.Y), precise: s.Precise, modifiers: pageModifiers(s.Modifiers)))
         case .keyDown(let k):
             return .keyDown(web.Key(Key: k.Key, Code: CodeName(k.Code), Shift: k.Modifiers.Shift,
                                     Control: k.Modifiers.Control, Alt: k.Modifiers.Alt, Meta: k.Modifiers.Meta))
@@ -127,6 +131,10 @@ public final class WebView {
         case .default: return window.Cursor.arrow
         }
     }
+}
+
+func pageModifiers(_ m: window.Modifiers) -> web.Modifiers {
+    return web.Modifiers(shift: m.Shift, control: m.Control, alt: m.Alt, meta: m.Meta)
 }
 
 func pageButton(_ b: window.PointerButton) -> web.PointerButton {

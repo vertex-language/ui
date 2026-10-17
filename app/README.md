@@ -20,3 +20,10 @@ frame into a PNG and quits.
 
 This is the first form: one window. The markup form of the RFC (`<app.Window>`, menus, status
 items) comes after.
+
+From code outside an event -- a task whose data arrived, a timer --
+`app.RequestFrame()` asks for a frame so a change shows (a viewport's
+`Invalidate` asks by itself). `app.IsDark()` is the appearance the page is
+shown in, for a viewport that draws its own colors, and `app.SetTitle(_:)`
+retitles the window. `--snapshot out.png --snapshot-after 2` snapshots the
+first frame two seconds in, for an app whose content arrives.

@@ -10,7 +10,8 @@
 // page patched once the event is done (proposed_vsx.md §8.1). This is the
 // first form of app.Run: one window, and styles given as a string until
 // .vss files are compiled. `--snapshot out.png` on the command line draws
-// the first frame into a PNG and quits; `--dark` and `--light` show the app
+// the first frame into a PNG and quits (`--snapshot-after 2`: the first
+// frame two seconds in); `--dark` and `--light` show the app
 // in that appearance, whatever the system's.
 package app
 
@@ -18,8 +19,11 @@ import (
     "fs"
     "image"
     "image/png"
+    "os/env"
+    "time"
     "ui/state"
     "ui/component"
+    "ui/viewport"
     "ui/webview"
     "ui/window"
     "web"
@@ -35,12 +39,21 @@ final class Host {
     var pixelSize: window.PixelSize
     var cursor: window.Cursor = window.Cursor.arrow
     var frameWanted = false
+    /// The pixels don't hold the page: it hasn't been painted at this size.
+    var stale = true
     var mounted: component.Mounted? = nil
     var snapshotPath: string? = nil
+    /// --snapshot-after seconds: the snapshot is the first frame after
+    /// this long, for an app whose content arrives (a shell's prompt).
+    var snapshotAfter: float64 = 0
+    let snapshotBegun = time.Instant.Now()
     var done = false
     /// The appearance --dark or --light asked for, which the system's
     /// does not change.
     var forced: bool? = nil
+    /// VSX_TRACE=1 in the environment: print what each frame and each
+    /// slow event cost.
+    let trace = (env.Get("VSX_TRACE") ?? "") != ""
 
     init(win: window.Window) {
         self.win = win
@@ -76,20 +89,41 @@ final class Host {
             pixelSize = px
             pixels = [uint8](repeating: 0, count: int(pixelSize.Width) * int(pixelSize.Height) * 4)
         }
+        stale = true
         view.SetBounds(origin: window.Point(0, 0), size: win.Size())
         requestFrame()
     }
 
-    func frame(_ time: float64) {
+    func frame(_ t: float64) {
         frameWanted = false
-        if view.Advance(time: time) || view.NeedsAnimation() { requestFrame() }
-        view.Draw(into: &pixels, canvasSize: pixelSize, scale: win.ScaleFactor())
-        do {
-            try surface.Present(pixels, size: pixelSize)
-        } catch let e as window.WindowError {
-            print("present: \(e.Message)")
-        } catch {}
-        if let path = snapshotPath, !done {
+        let t0 = time.Instant.Now()
+        if view.Advance(time: t) || view.NeedsAnimation() { requestFrame() }
+        // The page is painted only when it changed; the pixels keep it
+        // between, and viewports draw over their boxes alone.
+        let repaint = view.NeedsRepaint() || stale
+        if repaint {
+            view.Draw(into: &pixels, canvasSize: pixelSize, scale: win.ScaleFactor())
+            stale = false
+        }
+        let t1 = time.Instant.Now()
+        let drew = viewport.Composite(view.Page, &pixels, width: int(pixelSize.Width), height: int(pixelSize.Height),
+                                      scale: win.ScaleFactor(), time: t, all: repaint)
+        let t2 = time.Instant.Now()
+        if viewport.Wanted() { requestFrame() }
+        if repaint || drew || snapshotPath != nil {
+            do {
+                try surface.Present(pixels, size: pixelSize)
+            } catch let e as window.WindowError {
+                print("present: \(e.Message)")
+            } catch {}
+        }
+        if trace && (repaint || drew) {
+            print("app: frame \(pixelSize.Width)x\(pixelSize.Height): page \(repaint ? "\(ms(t0, t1)) ms" : "kept"), viewports \(ms(t1, t2)) ms, present \(t2.Elapsed().AsMilliseconds()) ms")
+        }
+        if snapshotPath != nil && !done && snapshotAfter > 0 && snapshotBegun.Elapsed().AsSeconds() < snapshotAfter {
+            // Not yet: keep frames coming until it is time.
+            requestFrame()
+        } else if let path = snapshotPath, !done {
             try? fs.WriteFile(fs.Path(path), png.Encode(image.RGBA(width: int(pixelSize.Width), height: int(pixelSize.Height), pixels: pixels)))
             done = true
             win.RequestFrame()
@@ -117,15 +151,60 @@ final class Host {
         }
         // The event's handlers write state; the root renders again once,
         // after them.
+        let t0 = time.Instant.Now()
         state.Batch { _ = self.view.Handle(event) }
+        if trace {
+            let ms = t0.Elapsed().AsMilliseconds()
+            if ms >= 2 { print("app: event took \(ms) ms") }
+        }
         let c = view.DesiredCursor()
         if c != cursor {
             cursor = c
             win.SetCursor(c)
         }
-        if view.NeedsRepaint() || view.NeedsAnimation() { requestFrame() }
+        if view.NeedsRepaint() || view.NeedsAnimation() || viewport.Wanted() { requestFrame() }
         return true
     }
+}
+
+// Set by Quit, from the UI thread.
+var quitting = false
+
+// The running app's host, for RequestFrame.
+var current: Host? = nil
+
+/// RequestFrame asks for a frame of the running app: what a task that
+/// changed state outside an event (data that arrived, a timer) calls so
+/// the change is shown. Events and viewports' Invalidate ask by
+/// themselves.
+@MainActor
+public func RequestFrame() {
+    current?.requestFrame()
+}
+
+/// IsDark is whether the running app is shown in a dark color scheme:
+/// the system's appearance, or what --dark or --light asked for. What a
+/// viewport that draws itself follows, as the page's prefers-color-scheme
+/// does.
+@MainActor
+public func IsDark() -> bool {
+    return current?.view.Page.IsDark ?? false
+}
+
+/// SetTitle changes the running app's window title.
+@MainActor
+public func SetTitle(_ title: string) {
+    current?.win.SetTitle(title)
+}
+
+/// Quit ends the running app after the event or frame being handled, as
+/// closing its window would.
+public func Quit() {
+    quitting = true
+}
+
+func ms(_ a: time.Instant, _ b: time.Instant) -> int64 {
+    return (b - a).AsMilliseconds()
 }
 
 /// The page's own styles, under the app's: the system font, and no margin
@@ -148,6 +227,8 @@ public func Run(title: string, width: float32 = 800, height: float32 = 600, css:
         return 1
     }
     let host = Host(win: win)
+    current = host
+    viewport.SetWaker { host.requestFrame() }
     // --snapshot out.png draws a frame and quits; --dark and --light
     // show the app in that appearance, whatever the system's.
     var forced: bool? = nil
@@ -156,6 +237,9 @@ public func Run(title: string, width: float32 = 800, height: float32 = 600, css:
     while i < args.count {
         if args[i] == "--snapshot" && i + 1 < args.count {
             host.snapshotPath = args[i + 1]
+            i += 1
+        } else if args[i] == "--snapshot-after" && i + 1 < args.count {
+            host.snapshotAfter = float64(args[i + 1]) ?? 0
             i += 1
         } else if args[i] == "--dark" {
             forced = true
@@ -168,8 +252,15 @@ public func Run(title: string, width: float32 = 800, height: float32 = 600, css:
     host.view.Page.SetColorScheme(dark: forced ?? (win.Theme() == .dark))
     host.mount(css: css, root)
     host.requestFrame()
+    // VSX_QUIT_AFTER=seconds: quit by itself, for timing an app unattended.
+    let quitAfter = float64(env.Get("VSX_QUIT_AFTER") ?? "") ?? 0
+    let begun = time.Instant.Now()
     while let event = await win.WaitEvent() {
-        if !host.handle(event) || host.done {
+        if quitAfter > 0 && begun.Elapsed().AsSeconds() > quitAfter { quitting = true }
+        if !host.handle(event) || host.done || quitting {
+            quitting = false
+            viewport.SetWaker(nil)
+            current = nil
             host.mounted?.Unmount()
             win.Close()
             return 0

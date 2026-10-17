@@ -51,8 +51,9 @@ public final class Node: Renderable {
     init() {}
 
     public func Nodes() -> [Node] {
-        // A fragment is its children.
-        if Tag.isEmpty && !isText && live == nil && list == nil { return Children }
+        // A fragment is its children, unless it carries a sheet (Styled),
+        // which the mount has to see.
+        if Tag.isEmpty && !isText && live == nil && list == nil && sheet == nil { return Children }
         return [self]
     }
 
@@ -120,15 +121,17 @@ extension string: Renderable { public func Nodes() -> [Node] { return [Text(self
 extension int: Renderable { public func Nodes() -> [Node] { return [Text("\(self)")] } }
 extension float64: Renderable { public func Nodes() -> [Node] { return [Text("\(self)")] } }
 extension bool: Renderable { public func Nodes() -> [Node] { return [] } }
+// @inlinable: a client specializes these for its own element types, so
+// their bodies have to travel in this module's interface.
 extension Array: Renderable where Element: Renderable {
-    public func Nodes() -> [Node] {
+    @inlinable public func Nodes() -> [Node] {
         var out: [Node] = []
         for x in self { out += x.Nodes() }
         return out
     }
 }
 extension Optional: Renderable where Wrapped: Renderable {
-    public func Nodes() -> [Node] {
+    @inlinable public func Nodes() -> [Node] {
         if let w = self { return w.Nodes() }
         return []
     }
@@ -380,6 +383,18 @@ public func Element(_ tag: string, _ attributes: [Attribute], _ children: [any R
 public func Fragment(_ children: [any Renderable]) -> Node {
     let n = Node()
     for c in children { n.Children += c.Nodes() }
+    return n
+}
+
+/// content, carrying a package's sheet: what vsc wraps a component call in
+/// when the package making the call has styles, so its sheet reaches the
+/// page even where all it makes is another package's component (a
+/// program whose root is a library's window, whose document rules would
+/// otherwise never apply).
+public func Styled(_ sheet: Sheet, _ content: any Renderable) -> Node {
+    let n = Node()
+    n.sheet = sheet
+    n.Children += content.Nodes()
     return n
 }
 

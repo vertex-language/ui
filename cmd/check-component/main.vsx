@@ -142,8 +142,18 @@ func click(_ page: web.Page, _ selector: string) {
     }
 }
 
+// Lists and optionals as children: Array's and Optional's Renderable
+// conformances are specialized in this module, from component's
+// interface (they once crashed vsc: their bodies weren't in it).
+func Names(_ names: [string]) -> component.Node {
+    return <ul>{names.map { n in <li>{n}</li> }}{names.isEmpty ? <li>none</li> : nil}</ul>
+}
+
 @MainActor
 func main() -> int32 {
+    let listed = Names(["a", "b"]).Html(), empty = Names([]).Html()
+    check(listed.contains(">a</li>") && listed.contains(">b</li>") && !listed.contains("none") && empty.contains(">none</li>"),
+          "a mapped list and an optional child render (got \(Names(["a", "b"]).Html()))")
     let page = web.Page()
     page.SetViewportSize(draw.Size(480, 320))
     page.LoadHTML("""

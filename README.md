@@ -30,6 +30,10 @@ vsc run paint
 # A .vsx app: markup, state and handlers, in a window.
 vsc run vsx-demo
 
+# A panel of sliders beside a viewport the program draws itself, with a
+# toolbar over it; VSX_TRACE=1 prints what each frame costs.
+VSX_TRACE=1 vsc run viewport-demo
+
 # The checks.
 vsc run check-webview
 vsc run check-state
@@ -51,6 +55,7 @@ vsc run lifecycle
 | **`ui/app`** | `app.Run`: a window whose page holds a mounted `.vsx` root, with events reaching its handlers. | none |
 | **`ui/componenttest`** | Headless tests of components: queries by role, label and text, input through the page, computed styles, pixel goldens. | none |
 | **`ui/kit`** | A few styled components, and the example of a library with `.vss` styles and tokens. | none |
+| **`ui/viewport`** | `Viewport(class:live:handle:) { w, h, t in pixels }`: a box in the page's layout that the program draws into itself (a 3D view, a terminal). The host draws it over the page each frame it wants one (live, or `Invalidate`d, from an event or a task: `SetWaker`), copies rows with memcpy, and paints the page's overlays back over it (`web.Page.DrawOver`). `Handle.Origin` and `Handle.Size` are where it was drawn, for pointer events. | none |
 
 ---
 
@@ -82,7 +87,11 @@ func main() async -> int32 {
 
 A click reaches the button through the page's own events (`web/dom`), the
 handler writes `count`, and the root is rendered again and the page
-patched in place once the event is done. `vsc run vsx-demo -- --snapshot
+patched in place once the event is done. The page is painted only when
+it changed; between, frames are only its viewports. `VSX_TRACE=1` in the
+environment prints each frame's cost (page, viewports, present) and any
+slow event; `VSX_QUIT_AFTER=seconds` quits by itself (for timing an app
+unattended), as `app.Quit()` does from code. `vsc run vsx-demo -- --snapshot
 out.png` draws the first frame to a PNG and quits.
 
 ---

@@ -25,9 +25,11 @@ import (
     "time"
     "ui/state"
     "ui/component"
+    "ui/viewport"
     "web"
     "web/cascade"
     "web/html"
+    "web/layout"
 )
 
 /// A mounted component and the page it is in.
@@ -217,11 +219,40 @@ public final class Screen {
 
     // MARK: - Looking
 
-    /// The screen's pixels, drawn at scale 1.
-    public func Pixels() -> Pixels {
+    /// The screen's pixels, drawn at scale 1, its viewports drawn into
+    /// their boxes as an app's host would.
+    public func Pixels(time t: float64 = 0) -> Pixels {
         var px = [uint8](repeating: 0, count: int(width) * int(height) * 4)
         Page.Draw(into: &px, width: width, height: height, scale: 1)
+        viewport.Composite(Page, &px, width: int(width), height: int(height), scale: 1, time: t)
         return componenttest.Pixels(image: image.RGBA(width: int(width), height: int(height), pixels: px))
+    }
+
+    /// Drag presses on the first element found at a fraction of its width
+    /// (0 its left edge, 1 its right) and height (middle by default),
+    /// moves to `to` in `steps`, and lets go: a slider dragged, a view
+    /// turned. `each` runs after every step (to time it, or look).
+    @discardableResult
+    public func Drag(_ found: Found, from: float32, to: float32, steps: int = 10, y: float32 = 0.5,
+                     each: (int) -> void = { _ in }) -> bool {
+        guard let n = found.First, let box = Page.BoxFor(n) else { return false }
+        let pos = layout.PagePosition(box)
+        let scroll = Page.ScrollOffset()
+        func at(_ f: float32) -> draw.Point {
+            return draw.Point(pos.x - scroll.X + box.Width * f, pos.y - scroll.Y + box.Height * y)
+        }
+        state.Batch {
+            _ = self.Page.Handle(.pointerMoved(at(from)))
+            _ = self.Page.Handle(.pointerDown(web.Pointer(at(from))))
+        }
+        each(0)
+        for k in 1...max(1, steps) {
+            let f = from + (to - from) * float32(k) / float32(max(1, steps))
+            state.Batch { _ = self.Page.Handle(.pointerMoved(at(f))) }
+            each(k)
+        }
+        state.Batch { _ = self.Page.Handle(.pointerUp(web.Pointer(at(to)))) }
+        return true
     }
 
     func render() {
@@ -239,6 +270,12 @@ public struct Found {
     init(_ nodes: [html.Node], _ screen: Screen) {
         Nodes = nodes
         self.screen = screen
+    }
+
+    /// Nth is the i-th element found (0 first), alone; none when there
+    /// are fewer.
+    public func Nth(_ i: int) -> Found {
+        return Found(i >= 0 && i < Nodes.count ? [Nodes[i]] : [], screen)
     }
 
     public var Count: int { return Nodes.count }

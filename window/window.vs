@@ -147,6 +147,15 @@ public func (w: borrowing Window) SetFullscreen(_ fullscreen: bool) {
     winSetFullscreen(w.Id, fullscreen ? 1 : 0)
 }
 
+/// Locks the pointer to the window, as a game's mouse look wants it: the
+/// cursor is hidden and held still, and movement arrives as
+/// `.relativeMotion` instead of `.pointerMoved`. The lock is let go while
+/// another window has focus and taken again when this one gets it back.
+/// Unlock it to give the user their cursor (a pause menu, Escape).
+public func (w: borrowing Window) SetPointerLocked(_ locked: bool) {
+    winSetPointerLocked(w.Id, locked ? 1 : 0)
+}
+
 /// The system mouse cursor shape.
 public enum Cursor: Equatable {
     case arrow
