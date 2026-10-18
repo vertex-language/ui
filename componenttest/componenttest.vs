@@ -342,7 +342,7 @@ public func Mount(width: int32 = 800, height: int32 = 600, css: string = "", _ r
     page.LoadHTML("<!doctype html><html><head><style>html { font: 14px system-ui; } body { margin: 0; }" + css + "</style></head><body></body></html>")
     let doc = page.Document!
     let body = doc.Tree.ElementsByTagName("body").first!
-    let mounted = component.Mount(root, into: doc, at: body, styles: { sheets in page.SetStyleSheets(sheets) }, focus: { n in page.Focus(n) })
+    let mounted = component.Mount(root, into: doc, at: body, styles: { sheets in page.SetStyleSheets(sheets) }, focus: { n in page.Focus(n) }, measure: { n in page.BoundsOf(n) })
     return Screen(page: page, mounted: mounted, width: width, height: height)
 }
 

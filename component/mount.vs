@@ -1,6 +1,7 @@
 package component
 
 import (
+    "image/draw"
     "ui/state"
     "web/dom"
     "web/html"
@@ -15,6 +16,7 @@ public final class Mounted {
     let parent: html.Node
     let styles: (([string]) -> void)?
     let focus: ((html.Node?) -> void)?
+    let measure: ((html.Node) -> draw.Rect?)?
     /// What the root made: every binding, and every list's rows.
     let owner = state.Owner()
     var used: [Sheet] = []
@@ -24,11 +26,12 @@ public final class Mounted {
     /// How many times a live part has run, the first time included.
     public internal(set) var Updates = 0
 
-    init(doc: dom.Document, parent: html.Node, styles: (([string]) -> void)?, focus: ((html.Node?) -> void)?) {
+    init(doc: dom.Document, parent: html.Node, styles: (([string]) -> void)?, focus: ((html.Node?) -> void)?, measure: ((html.Node) -> draw.Rect?)?) {
         self.doc = doc
         self.parent = parent
         self.styles = styles
         self.focus = focus
+        self.measure = measure
     }
 
     /// Disposes every binding, and takes the root's nodes out of the
@@ -291,9 +294,11 @@ final class RowTable {
 /// whenever they change: a page sets them (web.Page.SetStyleSheets).
 ///
 /// focus, where given, is how Focus moves the page's focus
-/// (web.Page.Focus).
-public func Mount(_ root: () -> Node, into doc: dom.Document, at parent: html.Node, styles: (([string]) -> void)? = nil, focus: ((html.Node?) -> void)? = nil) -> Mounted {
-    let m = Mounted(doc: doc, parent: parent, styles: styles, focus: focus)
+/// (web.Page.Focus); measure, how Bounds finds where an element is
+/// (web.Page.BoundsOf).
+public func Mount(_ root: () -> Node, into doc: dom.Document, at parent: html.Node, styles: (([string]) -> void)? = nil, focus: ((html.Node?) -> void)? = nil,
+                  measure: ((html.Node) -> draw.Rect?)? = nil) -> Mounted {
+    let m = Mounted(doc: doc, parent: parent, styles: styles, focus: focus, measure: measure)
     lastMounted = m
     m.hosting {
         state.WithOwner(m.owner) {
@@ -358,4 +363,12 @@ func runMounted() {
 /// handler, an effect; from a task, it is the last mounted root's page.
 public func Focus(_ node: html.Node?) {
     if let h = host ?? lastMounted, let f = h.focus { f(node) }
+}
+
+/// Where an element a ref holds is in the page's view, as laid out now:
+/// to drag it, or to place something beside it. nil when it isn't laid
+/// out, or the page can't say.
+public func Bounds(of node: html.Node?) -> draw.Rect? {
+    guard let n = node, let h = host ?? lastMounted, let f = h.measure else { return nil }
+    return f(n)
 }

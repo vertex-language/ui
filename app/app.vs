@@ -73,7 +73,7 @@ final class Host {
         let doc = view.Page.Document!
         let body = doc.Tree.ElementsByTagName("body").first!
         let page = view.Page
-        mounted = component.Mount(root, into: doc, at: body, styles: { sheets in page.SetStyleSheets(sheets) }, focus: { n in page.Focus(n) })
+        mounted = component.Mount(root, into: doc, at: body, styles: { sheets in page.SetStyleSheets(sheets) }, focus: { n in page.Focus(n) }, measure: { n in page.BoundsOf(n) })
     }
 
     func requestFrame() {
