@@ -10,6 +10,10 @@ public struct Options {
     public var Visible: bool = true
     /// The smallest content size the user can resize it to.
     public var MinSize: Size? = nil
+    /// The title bar is hidden and the content runs to the window's top,
+    /// the window buttons over it (as a browser's tabs sit beside them).
+    /// The content starts a window drag itself (`StartDrag`).
+    public var UnifiedTitlebar: bool = false
 
     public init() {}
 
@@ -41,6 +45,7 @@ public func Create(title: string, size: Size = Size(1280, 720),
     if options.Resizable { flags |= 1 }
     if options.Decorated { flags |= 2 }
     if options.Visible { flags |= 4 }
+    if options.UnifiedTitlebar { flags |= 8 }
     let id = winCreate(title, float64(size.Width), float64(size.Height), flags)
     if id < 0 {
         throw errorFor(id, "creating a window titled \"\(title)\"")
@@ -145,6 +150,49 @@ public func (w: borrowing Window) SetVisible(_ visible: bool) {
 
 public func (w: borrowing Window) SetFullscreen(_ fullscreen: bool) {
     winSetFullscreen(w.Id, fullscreen ? 1 : 0)
+}
+
+/// With a unified title bar: the window buttons at x points from the
+/// left, centered in a band band points tall at the top.
+public func (w: borrowing Window) SetTitlebarBand(x: float32, band: float32) {
+    winSetTitlebarBand(w.Id, float64(x), float64(band))
+}
+
+/// Moves the window with the pointer, from the press in progress: what
+/// pressing an empty part of a title bar does.
+public func (w: borrowing Window) StartDrag() {
+    winStartDrag(w.Id)
+}
+
+/// Zooms the window (or minimizes it), as double-clicking a title bar
+/// does with the user's setting.
+public func (w: borrowing Window) TitlebarDoubleClick() {
+    winZoom(w.Id)
+}
+
+/// Whether the window fills the screen.
+public func (w: borrowing Window) Fullscreen() -> bool {
+    return winIsFullscreen(w.Id) != 0
+}
+
+/// Keeps the window over other apps' windows, or lets it go back.
+public func (w: borrowing Window) SetAlwaysOnTop(_ onTop: bool) {
+    winSetAlwaysOnTop(w.Id, onTop ? 1 : 0)
+}
+
+/// The whole window's opacity, 0.05 to 1.
+public func (w: borrowing Window) SetOpacity(_ opacity: float32) {
+    winSetOpacity(w.Id, float64(opacity))
+}
+
+/// Minimizes the window (to the Dock).
+public func (w: borrowing Window) Minimize() {
+    winMinimize(w.Id)
+}
+
+/// The system's alert sound.
+public func Beep() {
+    winBeep()
 }
 
 /// Locks the pointer to the window, as a game's mouse look wants it: the

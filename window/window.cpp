@@ -38,6 +38,7 @@ export namespace CreateFlag {
     constexpr int32_t resizable = 1;
     constexpr int32_t decorated = 2;
     constexpr int32_t visible = 4;
+    constexpr int32_t unified = 8;
 }
 
 // Event kinds, as winNext returns them. 0 is "none queued".
@@ -104,6 +105,14 @@ export void winSetSize(int32_t window, double width, double height) noexcept;
 export void winSetMinSize(int32_t window, double width, double height) noexcept;
 export void winSetVisible(int32_t window, int32_t visible) noexcept;
 export void winSetFullscreen(int32_t window, int32_t fullscreen) noexcept;
+export int32_t winIsFullscreen(int32_t window) noexcept;
+export void winSetTitlebarBand(int32_t window, double x, double band) noexcept;
+export void winStartDrag(int32_t window) noexcept;
+export void winZoom(int32_t window) noexcept;
+export void winSetAlwaysOnTop(int32_t window, int32_t onTop) noexcept;
+export void winSetOpacity(int32_t window, double opacity) noexcept;
+export void winMinimize(int32_t window) noexcept;
+export void winBeep() noexcept;
 // Locked: the pointer is hidden and held still over the window, and its
 // movement arrives as relativeMotion. Released while the window isn't key.
 export void winSetPointerLocked(int32_t window, int32_t locked) noexcept;

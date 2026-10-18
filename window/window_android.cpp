@@ -640,6 +640,14 @@ void winSetSize(int32_t window, double width, double height) { (void)window; (vo
 void winSetMinSize(int32_t window, double width, double height) { (void)window; (void)width; (void)height; }
 void winSetVisible(int32_t window, int32_t visible) { (void)window; (void)visible; }
 void winSetFullscreen(int32_t window, int32_t fullscreen) { (void)window; (void)fullscreen; }
+int32_t winIsFullscreen(int32_t window) noexcept { (void)window; return 1; }
+void winSetTitlebarBand(int32_t window, double x, double band) noexcept { (void)window; (void)x; (void)band; }
+void winStartDrag(int32_t window) noexcept { (void)window; }
+void winZoom(int32_t window) noexcept { (void)window; }
+void winSetAlwaysOnTop(int32_t window, int32_t onTop) noexcept { (void)window; (void)onTop; }
+void winSetOpacity(int32_t window, double opacity) noexcept { (void)window; (void)opacity; }
+void winMinimize(int32_t window) noexcept { (void)window; }
+void winBeep() noexcept {}
 void winSetPointerLocked(int32_t window, int32_t locked) noexcept { (void)window; (void)locked; }
 void winSetScaling(int32_t window, int32_t mode) noexcept { (void)window; (void)mode; }
 void winSetCursor(int32_t window, int32_t cursor) { (void)window; (void)cursor; }

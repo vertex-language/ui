@@ -54,6 +54,7 @@ vsc run lifecycle
 | **`ui/component`** | What `.vsx` markup lowers to (`Element`, `Attribute`, `Fragment`, `For`, `Node`), and `Mount`, which puts a root into a `dom.Document` and patches it when a signal it read changes. | none |
 | **`ui/app`** | `app.Run`: a window whose page holds a mounted `.vsx` root, with events reaching its handlers. | none |
 | **`ui/componenttest`** | Headless tests of components: queries by role, label and text, input through the page, computed styles, pixel goldens. | none |
+| **`ui/icon`** | `<icon.Icon of={lucide.Settings} size={16} />`: an icon from the `icons` repository's sets as the page's `<svg>`, in the text's color. | none |
 | **`ui/kit`** | A few styled components, and the example of a library with `.vss` styles and tokens. | none |
 | **`ui/viewport`** | `Viewport(class:live:handle:) { w, h, t in pixels }`: a box in the page's layout that the program draws into itself (a 3D view, a terminal). The host draws it over the page each frame it wants one (live, or `Invalidate`d, from an event or a task: `SetWaker`), copies rows with memcpy, and paints the page's overlays back over it (`web.Page.DrawOver`). `Handle.Origin` and `Handle.Size` are where it was drawn, for pointer events. | none |
 

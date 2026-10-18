@@ -134,6 +134,11 @@ final class Host {
     func handle(_ event: window.Event) -> bool {
         switch event {
         case .closeRequested:
+            // The app may ask first (unsaved work, running programs).
+            if let ask = closeHandler, !ask() {
+                requestFrame()
+                return true
+            }
             return false
         case .resized(_), .scaleFactorChanged(_):
             resized()
@@ -169,6 +174,81 @@ final class Host {
 
 // Set by Quit, from the UI thread.
 var quitting = false
+
+// What OnCloseRequest gave: asked before the window closes.
+var closeHandler: (() -> bool)? = nil
+
+/// OnCloseRequest gives a function asked when the user closes the window
+/// (its close button, ⌘Q): true lets it close, false keeps it open (to
+/// ask first, and Quit later).
+@MainActor
+public func OnCloseRequest(_ f: (() -> bool)?) {
+    closeHandler = f
+}
+
+/// SetFullscreen puts the window on its own space, filling the screen,
+/// or back.
+@MainActor
+public func SetFullscreen(_ on: bool) {
+    current?.win.SetFullscreen(on)
+}
+
+/// IsFullscreen is whether the window fills the screen.
+@MainActor
+public func IsFullscreen() -> bool {
+    return current?.win.Fullscreen() ?? false
+}
+
+/// SetAlwaysOnTop keeps the window over other apps' windows, or not.
+@MainActor
+public func SetAlwaysOnTop(_ on: bool) {
+    current?.win.SetAlwaysOnTop(on)
+}
+
+/// SetOpacity makes the whole window translucent, 0.05 to 1.
+@MainActor
+public func SetOpacity(_ opacity: float32) {
+    current?.win.SetOpacity(opacity)
+}
+
+/// Minimize puts the window in the Dock.
+@MainActor
+public func Minimize() {
+    current?.win.Minimize()
+}
+
+/// SetSize resizes the window's content, in points.
+@MainActor
+public func SetSize(width: float32, height: float32) {
+    current?.win.SetSize(window.Size(width, height))
+}
+
+/// StartWindowDrag moves the window with the pointer, from the press in
+/// progress: for a page that draws its own title bar (`unifiedTitlebar`),
+/// called when an empty part of it is pressed.
+@MainActor
+public func StartWindowDrag() {
+    current?.win.StartDrag()
+}
+
+/// TitlebarDoubleClick zooms or minimizes the window, as the user set a
+/// title bar's double-click to.
+@MainActor
+public func TitlebarDoubleClick() {
+    current?.win.TitlebarDoubleClick()
+}
+
+/// SetTitlebarBand places the window buttons, with a unified title bar:
+/// x points from the left, centered in a band band points tall.
+@MainActor
+public func SetTitlebarBand(x: float32, band: float32) {
+    current?.win.SetTitlebarBand(x: x, band: band)
+}
+
+/// Beep plays the system's alert sound.
+public func Beep() {
+    window.Beep()
+}
 
 // The running app's host, for RequestFrame.
 var current: Host? = nil
@@ -214,9 +294,11 @@ let baseCSS = "html { font: 14px system-ui; } body { margin: 0; }\n"
 /// Opens a window titled title, mounts root in it, and runs until the
 /// window is closed. Answers the program's exit status.
 @MainActor
-public func Run(title: string, width: float32 = 800, height: float32 = 600, css: string = "", _ root: () -> component.Node) async -> int32 {
+public func Run(title: string, width: float32 = 800, height: float32 = 600, css: string = "", unifiedTitlebar: bool = false,
+                _ root: () -> component.Node) async -> int32 {
     var options = window.Options()
     options.MinSize = window.Size(240, 160)
+    options.UnifiedTitlebar = unifiedTitlebar
     let win: window.Window
     do {
         win = try window.Create(title: title, size: window.Size(width, height), options: options)

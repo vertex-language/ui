@@ -193,7 +193,16 @@ static int32_t modifiersFor(NSEventModifierFlags f) {
 // (it isn't while another window is key).
 @property (nonatomic) BOOL wantsLock;
 @property (nonatomic) BOOL locked;
+// The title bar is hidden and the content runs under it; the traffic
+// lights sit at lightsX, centered in a band lightsBand points tall.
+@property (nonatomic) BOOL unified;
+@property (nonatomic) CGFloat lightsX;
+@property (nonatomic) CGFloat lightsBand;
+// The last press, for a window drag the program starts from it.
+@property (nonatomic, strong) NSEvent* lastDown;
 @end
+
+static void placeLights(CWWindow* w);
 
 static void applyLock(CWWindow* w, BOOL lock);
 
@@ -332,7 +341,10 @@ static void pushKind(CWWindow* w, int32_t kind, int32_t code, double x, double y
 - (void)mouseDragged:(NSEvent*)e { if (![self relative:e]) [self pointer:e kind:EventKind::pointerMoved button:0]; }
 - (void)rightMouseDragged:(NSEvent*)e { if (![self relative:e]) [self pointer:e kind:EventKind::pointerMoved button:0]; }
 - (void)otherMouseDragged:(NSEvent*)e { if (![self relative:e]) [self pointer:e kind:EventKind::pointerMoved button:0]; }
-- (void)mouseDown:(NSEvent*)e { [self pointer:e kind:EventKind::pointerDown button:0]; }
+- (void)mouseDown:(NSEvent*)e {
+    self.owner.lastDown = e;
+    [self pointer:e kind:EventKind::pointerDown button:0];
+}
 - (void)mouseUp:(NSEvent*)e { [self pointer:e kind:EventKind::pointerUp button:0]; }
 - (void)rightMouseDown:(NSEvent*)e { [self pointer:e kind:EventKind::pointerDown button:1]; }
 - (void)rightMouseUp:(NSEvent*)e { [self pointer:e kind:EventKind::pointerUp button:1]; }
@@ -466,8 +478,13 @@ static void pushKind(CWWindow* w, int32_t kind, int32_t code, double x, double y
 }
 
 - (void)windowDidResize:(NSNotification*)n {
+    placeLights(self);
     NSSize s = [self.view bounds].size;
     pushKind(self, EventKind::resized, 0, s.width, s.height);
+}
+
+- (void)windowDidExitFullScreen:(NSNotification*)n {
+    placeLights(self);
 }
 
 - (void)windowDidMove:(NSNotification*)n {
@@ -615,6 +632,8 @@ int32_t winCreate(const char* title, double width, double height, int32_t flags)
             style |= NSWindowStyleMaskResizable;
         if (!(flags & CreateFlag::decorated))
             style = NSWindowStyleMaskBorderless | (style & NSWindowStyleMaskResizable);
+        else if (flags & CreateFlag::unified)
+            style |= NSWindowStyleMaskFullSizeContentView;
 
         NSWindow* nsw = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, width, height)
                                                     styleMask:style
@@ -640,6 +659,14 @@ int32_t winCreate(const char* title, double width, double height, int32_t flags)
         w.view = view;
         [nsw setContentView:view];
         [nsw setDelegate:w];
+        if (flags & CreateFlag::unified) {
+            [nsw setTitlebarAppearsTransparent:YES];
+            [nsw setTitleVisibility:NSWindowTitleHidden];
+            w.unified = YES;
+            w.lightsX = 14;
+            w.lightsBand = 40;
+            placeLights(w);
+        }
         [nsw makeFirstResponder:view];
 
         Queue* q = (Queue*)calloc(1, sizeof(Queue));
@@ -792,6 +819,99 @@ void winSetFullscreen(int32_t window, int32_t fullscreen) noexcept {
     BOOL now = ([w.window styleMask] & NSWindowStyleMaskFullScreen) != 0;
     if ((fullscreen != 0) != now)
         [w.window toggleFullScreen:nil];
+}
+
+// placeLights moves the close, minimize and zoom buttons to lightsX and
+// centers them in the top band, as browsers with tabs in the title bar
+// have them: the title bar's container is made as tall as the band.
+static void placeLights(CWWindow* w) {
+    if (!w.unified)
+        return;
+    NSButton* close = [w.window standardWindowButton:NSWindowCloseButton];
+    NSButton* mini = [w.window standardWindowButton:NSWindowMiniaturizeButton];
+    NSButton* zoom = [w.window standardWindowButton:NSWindowZoomButton];
+    if (close == nil || mini == nil || zoom == nil)
+        return;
+    NSView* container = close.superview.superview;
+    if (container == nil)
+        return;
+    CGFloat bh = close.frame.size.height;
+    NSRect r = container.frame;
+    r.size.height = w.lightsBand;
+    r.origin.y = w.window.frame.size.height - w.lightsBand;
+    [container setFrame:r];
+    CGFloat gap = mini.frame.origin.x - close.frame.origin.x;
+    if (gap <= 0)
+        gap = 20;
+    CGFloat y = (w.lightsBand - bh) / 2;
+    NSArray* buttons = @[ close, mini, zoom ];
+    for (NSUInteger i = 0; i < buttons.count; i++) {
+        NSButton* b = buttons[i];
+        [b setFrameOrigin:NSMakePoint(w.lightsX + gap * i, y)];
+    }
+}
+
+void winSetTitlebarBand(int32_t window, double x, double band) noexcept {
+    CWWindow* w = windowOf(window);
+    if (w == nil)
+        return;
+    w.lightsX = x;
+    w.lightsBand = band;
+    placeLights(w);
+}
+
+void winStartDrag(int32_t window) noexcept {
+    CWWindow* w = windowOf(window);
+    if (w == nil || w.lastDown == nil)
+        return;
+    // Only while the button is still down: a click that ended is no drag.
+    if (([NSEvent pressedMouseButtons] & 1) == 0)
+        return;
+    [w.window performWindowDragWithEvent:w.lastDown];
+}
+
+void winZoom(int32_t window) noexcept {
+    CWWindow* w = windowOf(window);
+    if (w == nil)
+        return;
+    // What a double-click on a title bar does, as the user set it.
+    NSString* action = [[NSUserDefaults standardUserDefaults] stringForKey:@"AppleActionOnDoubleClick"];
+    if ([action isEqualToString:@"Minimize"])
+        [w.window miniaturize:nil];
+    else if (![action isEqualToString:@"None"])
+        [w.window zoom:nil];
+}
+
+int32_t winIsFullscreen(int32_t window) noexcept {
+    CWWindow* w = windowOf(window);
+    if (w == nil)
+        return 0;
+    return ([w.window styleMask] & NSWindowStyleMaskFullScreen) != 0 ? 1 : 0;
+}
+
+void winSetAlwaysOnTop(int32_t window, int32_t onTop) noexcept {
+    CWWindow* w = windowOf(window);
+    if (w == nil)
+        return;
+    [w.window setLevel:onTop ? NSFloatingWindowLevel : NSNormalWindowLevel];
+}
+
+void winSetOpacity(int32_t window, double opacity) noexcept {
+    CWWindow* w = windowOf(window);
+    if (w == nil)
+        return;
+    [w.window setAlphaValue:(CGFloat)(opacity < 0.05 ? 0.05 : (opacity > 1 ? 1 : opacity))];
+}
+
+void winMinimize(int32_t window) noexcept {
+    CWWindow* w = windowOf(window);
+    if (w == nil)
+        return;
+    [w.window miniaturize:nil];
+}
+
+void winBeep() noexcept {
+    NSBeep();
 }
 
 // applyLock holds the pointer still over the window's center, hidden, or
