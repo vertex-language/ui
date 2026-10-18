@@ -276,6 +276,10 @@ static void pushKind(CWWindow* w, int32_t kind, int32_t code, double x, double y
 - (BOOL)isFlipped { return YES; }
 - (BOOL)acceptsFirstResponder { return YES; }
 - (BOOL)acceptsFirstMouse:(NSEvent*)event { return YES; }
+// The window moves only when the page asks (winStartDrag, from an empty
+// part of a title bar it draws): a press in the title bar's band -- on a
+// tab, a button -- is the page's, never the window's to take.
+- (BOOL)mouseDownCanMoveWindow { return NO; }
 - (BOOL)wantsUpdateLayer { return YES; }
 
 - (void)updateTrackingAreas {
