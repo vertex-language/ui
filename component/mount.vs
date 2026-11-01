@@ -50,6 +50,8 @@ final class Inst {
     var setAttrs: [string] = []
     var handlers: [(string, (dom.Event) -> void)] = []
     var listening: [string] = []
+    var captureHandlers: [(string, (dom.Event) -> void)] = []
+    var capturing: [string] = []
     var refs: [(html.Node?) -> void] = []
     let attrBindings = state.Owner()
     /// A component's fiber.
@@ -309,12 +311,22 @@ public final class Mounted {
     /// added once, calling whichever handlers the last description gave.
     func listen(_ inst: Inst, _ n: Node, _ el: html.Node) {
         inst.handlers = n.handlers
+        inst.captureHandlers = n.captureHandlers
         for (event, _) in n.handlers where !inst.listening.contains(event) {
             inst.listening.append(event)
             let ev = event
             _ = doc.AddEventListener(el, ev, { e in
                 self.hosting {
                     for (name, h) in inst.handlers where name == ev { h(e) }
+                }
+            })
+        }
+        for (event, _) in n.captureHandlers where !inst.capturing.contains(event) {
+            inst.capturing.append(event)
+            let ev = event
+            _ = doc.AddEventListener(el, ev, capture: true, { e in
+                self.hosting {
+                    for (name, h) in inst.captureHandlers where name == ev { h(e) }
                 }
             })
         }

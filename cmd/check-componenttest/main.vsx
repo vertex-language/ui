@@ -153,6 +153,20 @@ func Toggle() -> Element {
     )
 }
 
+func Inputs() -> Element {
+    let (log, setLog) = useState<[string]>([])
+    return (
+        <div onClickCapture={setLog { $0 + ["capture"] }}>
+            <input id="keys" onKeyUp={e in setLog { $0 + ["up " + e.Key] }}
+                   onCompositionUpdate={e in setLog { $0 + ["composing " + e.Data] }} />
+            <button id="press" onMouseDown={setLog { $0 + ["mousedown"] }} onMouseUp={setLog { $0 + ["mouseup"] }}
+                    onMouseOver={setLog { $0 + ["over"] }} onPointerEnter={setLog { $0 + ["enter"] }}
+                    onClick={setLog { $0 + ["click"] }}>press</button>
+            <p data-testid="inputs">{log.joined(separator: ",")}</p>
+        </div>
+    )
+}
+
 struct Contact: Equatable {
     var ID: int
     var Name: string
@@ -302,6 +316,17 @@ func main() async -> int32 {
     ev.Click(ev.Query("#other"))
     check(ev.ByTestId("log").Text == "enter,leave,enter,double,menu,leave,focus,blur",
           "onMouseEnter, onMouseLeave, onDoubleClick, onContextMenu, onFocus and onBlur (\(ev.ByTestId("log").Text))")
+
+    // keyup, the mouse events, pointerenter, capture and composition.
+    let inp = componenttest.Mount(width: 300, height: 200) { <Inputs /> }
+    inp.Click(inp.Query("#keys"))
+    inp.Release("x")
+    inp.Compose("ni")
+    check(inp.ByTestId("inputs").Text == "capture,up x,composing ni", "onKeyUp, onClickCapture and onCompositionUpdate (\(inp.ByTestId("inputs").Text))")
+    inp.Compose("")
+    inp.Click(inp.Query("#press"))
+    check(inp.ByTestId("inputs").Text.hasSuffix("over,enter,mousedown,mouseup,capture,click"),
+          "onMouseOver, onPointerEnter, onMouseDown, onMouseUp, then the click, captured first (\(inp.ByTestId("inputs").Text))")
 
     // Numbers in controlled fields.
     let q = componenttest.Mount(width: 300, height: 120) { <Quantity /> }

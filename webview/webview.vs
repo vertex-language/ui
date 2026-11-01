@@ -95,8 +95,13 @@ public final class WebView {
         case .keyDown(let k):
             return .keyDown(web.Key(Key: k.Key, Code: CodeName(k.Code), Shift: k.Modifiers.Shift,
                                     Control: k.Modifiers.Control, Alt: k.Modifiers.Alt, Meta: k.Modifiers.Meta))
+        case .keyUp(let k):
+            return .keyUp(web.Key(Key: k.Key, Code: CodeName(k.Code), Shift: k.Modifiers.Shift,
+                                  Control: k.Modifiers.Control, Alt: k.Modifiers.Alt, Meta: k.Modifiers.Meta))
         case .text(let t):
             return .text(t)
+        case .composition(let c):
+            return .composition(c)
         default:
             return nil
         }
@@ -122,14 +127,41 @@ public final class WebView {
 
     /// The window cursor for what the pointer is over.
     public func DesiredCursor() -> window.Cursor {
-        switch Page.DesiredCursor() {
-        case .pointer: return window.Cursor.pointingHand
-        case .text: return window.Cursor.iBeam
-        case .crosshair: return window.Cursor.crosshair
-        case .ewResize: return window.Cursor.resizeLeftRight
-        case .nsResize: return window.Cursor.resizeUpDown
-        case .default: return window.Cursor.arrow
-        }
+        return WindowCursor(Page.DesiredCursor())
+    }
+}
+
+/// The window cursor that shows a page's cursor.
+public func WindowCursor(_ c: web.Cursor) -> window.Cursor {
+    switch c {
+    case .default: return .arrow
+    case .none: return .hidden
+    case .contextMenu: return .contextMenu
+    case .help: return .help
+    case .pointer: return .pointingHand
+    case .progress, .wait: return .wait
+    case .cell: return .cell
+    case .crosshair: return .crosshair
+    case .text: return .iBeam
+    case .verticalText: return .iBeamVertical
+    case .alias: return .dragLink
+    case .copy: return .dragCopy
+    case .move, .allScroll: return .move
+    case .noDrop, .notAllowed: return .notAllowed
+    case .grab: return .openHand
+    case .grabbing: return .closedHand
+    case .colResize: return .resizeColumn
+    case .rowResize: return .resizeRow
+    case .nResize: return .resizeUp
+    case .sResize: return .resizeDown
+    case .eResize: return .resizeRight
+    case .wResize: return .resizeLeft
+    case .ewResize: return .resizeLeftRight
+    case .nsResize: return .resizeUpDown
+    case .neResize, .swResize, .neswResize: return .resizeNESW
+    case .nwResize, .seResize, .nwseResize: return .resizeNWSE
+    case .zoomIn: return .zoomIn
+    case .zoomOut: return .zoomOut
     }
 }
 

@@ -1,7 +1,7 @@
 // viewport-demo: a .vsx page with a panel of sliders beside a viewport
 // the program draws itself: the shape of an editor, without the editor.
 // The sliders steer what the viewport draws; it animates while "Live" is
-// on.
+// on, and a click in it moves its marker.
 //
 //     vsc run viewport-demo
 //     VSX_TRACE=1 VSX_QUIT_AFTER=5 vsc run viewport-demo   # what each frame costs, then quit
@@ -12,57 +12,85 @@ import (
     "ui/viewport"
 )
 
-func Demo() -> Element {
-    let hue = useRef<float32>(0.6)
-    let live = useRef<bool>(true)
-    let handleRef = useRef<viewport.Handle>(nil)
-    var rows: [any component.Renderable] = []
-    for i in 0..<40 {
-        rows.append(
-            <div className="row">
-                <span>Slider {i + 1}</span>
-                <input type="range" min="0" max="1" step="0.01" value={"\(hue.current ?? 0.6)"} onInput={e in
-                    hue.current = float32(e.Value) ?? 0
-                    handleRef.current?.Invalidate()
-                } />
-            </div>
-        )
+/// A gradient that scrolls while live, with a marker where it was last
+/// clicked.
+final class Gradient: viewport.Source {
+    var hue: float32 = 0.6
+    var markX: float32 = -1
+    var markY: float32 = -1
+    var handle: viewport.Handle? = nil
+
+    override init() {
+        super.init()
     }
-    let paint: viewport.Draw = { w, h, t in
+
+    override func Attached(_ handle: viewport.Handle) {
+        self.handle = handle
+        handle.Cursor = "crosshair"
+    }
+
+    override func Detached() {
+        handle = nil
+    }
+
+    override func PointerDown(_ e: dom.PointerEvent, x: float32, y: float32) {
+        markX = x
+        markY = y
+        handle?.Invalidate()
+    }
+
+    func setHue(_ h: float32) {
+        hue = h
+        handle?.Invalidate()
+    }
+
+    override func Draw(_ f: viewport.Frame) -> [uint8] {
+        let w = f.Width
+        let h = f.Height
         var px = [uint8](repeating: 255, count: w * h * 4)
-        let isLive = live.current ?? true
-        let shift = isLive ? int(t * 60) : 0
-        let base = int((hue.current ?? 0.6) * 255)
+        let shift = (handle?.Live ?? false) ? int(f.Time * 60) : 0
+        let base = uint8(int(hue * 255) & 255)
+        let mx = int(markX * f.Scale)
+        let my = int(markY * f.Scale)
         for y in 0..<h {
             let row = y * w * 4
             let g = uint8((y * 255 / max(1, h) + shift) & 255)
             var x = 0
             while x < w {
                 let o = row + x * 4
-                px[o] = uint8(base)
-                px[o + 1] = g
-                px[o + 2] = uint8((x * 255 / max(1, w)) & 255)
+                let marked = markX >= 0 && abs(x - mx) < 6 && abs(y - my) < 6
+                px[o] = marked ? 255 : base
+                px[o + 1] = marked ? 255 : g
+                px[o + 2] = marked ? 255 : uint8((x * 255 / max(1, w)) & 255)
                 x += 1
             }
         }
-        handleRef.current?.Live = isLive
         return px
+    }
+}
+
+func Demo() -> Element {
+    let gradient = useMemo({ Gradient() }, [])
+    let (live, setLive) = useState(true)
+    var rows: [any component.Renderable] = []
+    for i in 0..<40 {
+        rows.append(
+            <div className="row">
+                <span>Slider {i + 1}</span>
+                <input type="range" min="0" max="1" step="0.01" value={"\(gradient.hue)"}
+                       onInput={e in gradient.setHue(float32(e.Value) ?? 0)} />
+            </div>
+        )
     }
     return (
         <div className="app">
             <aside>
-                <button onClick={
-                    live.current = !(live.current ?? true)
-                    handleRef.current?.Invalidate()
-                }>{(live.current ?? true) ? "Live: on" : "Live: off"}</button>
+                <button onClick={setLive(!live)}>{live ? "Live: on" : "Live: off"}</button>
                 {component.Fragment(rows)}
             </aside>
             <main>
-                {viewport.Viewport(class: "view", live: true, handle: { h in handleRef.current = h }, paint)}
-                <div className="toolbar"><button onClick={
-                    live.current = !(live.current ?? true)
-                    handleRef.current?.Invalidate()
-                }>Over the view: {(live.current ?? true) ? "pause" : "play"}</button></div>
+                <Viewport source={gradient} class="view" live={live} />
+                <div className="toolbar"><button onClick={setLive(!live)}>Over the view: {live ? "pause" : "play"}</button></div>
             </main>
         </div>
     )

@@ -1,0 +1,98 @@
+// check-webview-view: <webview.View>, a web page shown in a box of a .vsx
+// page, headless: its pixels are in the box, and what the user does in
+// the box -- a click, typing, the pointer over a link, a key -- reaches
+// the page inside, as a user's would.
+//
+//     vsc run check-webview-view
+package main
+
+import (
+    "image/draw"
+    "ui/componenttest"
+    "ui/webview"
+    "web"
+)
+
+var failures = 0
+
+func check(_ ok: bool, _ what: string) {
+    if ok {
+        print("ok    \(what)")
+    } else {
+        print("FAIL  \(what)")
+        failures += 1
+    }
+}
+
+var outerKeys = 0
+var loads = 0
+
+func Browser(view: webview.WebView) -> Element {
+    let (shown, setShown) = useState(true)
+    return (
+        <div onKeyDown={_ in outerKeys += 1}>
+            {if shown { <webview.View controller={view} class="web" onLoad={_ in loads += 1} /> }}
+            <button id="hide" onClick={setShown(false)}>hide</button>
+        </div>
+    )
+}
+
+let inner = """
+<!doctype html><html><head><style>
+body { margin: 0; background: rgb(0, 128, 0); }
+#field { position: absolute; left: 0; top: 0; width: 200px; height: 100px; }
+#link { position: absolute; left: 0; top: 150px; display: block; width: 200px; height: 50px; }
+</style></head><body>
+<input id="field"><a id="link" href="#next">next</a>
+</body></html>
+"""
+
+@MainActor
+func main() async -> int32 {
+    let view = webview.WebView()
+    view.Page.LoadHTML(inner)
+    let css = ".web { display: block; width: 400px; height: 300px; } button { display: block; }"
+    let s = componenttest.Mount(width: 500, height: 400, css: css) { <Browser view={view} /> }
+    check(s.Query(".web[data-viewport]").Exists, "the view is a viewport in the page")
+
+    let px = s.Pixels()
+    check(px.At(300, 250) == draw.Color(0, 128, 0), "the inner page is drawn into the box")
+    check(px.At(450, 50) != draw.Color(0, 128, 0), "and nothing outside it")
+    check(view.Page.ViewportSize == draw.Size(400, 300), "the inner page is laid out at the box's size")
+
+    // A click lands on the inner page's field, at the click's place in it.
+    s.Click(s.Query(".web"))
+    let field = view.Page.QuerySelector("#field")!
+    check(view.Page.FocusedElement === field, "a click in the box focuses the inner page's field")
+    check(s.Page.FocusedElement === s.Query(".web").First, "and the box has the outer page's keyboard")
+
+    state.Batch { _ = s.Page.Handle(.text("hello")) }
+    check(view.Page.ValueOf(field) == "hello", "typing reaches the inner field (\(view.Page.ValueOf(field)))")
+
+    // A key the inner page takes stops at the box.
+    let before = outerKeys
+    state.Batch { _ = s.Page.Handle(.keyDown(web.Key(Key: "Backspace", Code: "Backspace"))) }
+    check(view.Page.ValueOf(field) == "hell", "a key reaches it too (\(view.Page.ValueOf(field)))")
+    check(outerKeys == before, "and does not reach the outer page's handlers")
+
+    // The pointer over the inner link: the outer page shows a hand. The
+    // outer page takes its cursor before the move reaches the box, so the
+    // inner page's shows from the pointer's next move, as it moves on.
+    if let box = s.Page.BoundsOf(s.Query(".web").First!) {
+        state.Batch { _ = s.Page.Handle(.pointerMoved(draw.Point(box.X + 20, box.Y + 170))) }
+        state.Batch { _ = s.Page.Handle(.pointerMoved(draw.Point(box.X + 21, box.Y + 170))) }
+    }
+    check(s.Page.DesiredCursor() == .pointer, "over the inner link, the pointer is a hand (\(s.Page.DesiredCursor()))")
+
+    // The box goes: the page is drawn no more.
+    s.Click(s.Query("#hide"))
+    check(!s.Query(".web").Exists, "the view can be taken out")
+    check(s.Pixels().At(300, 250) != draw.Color(0, 128, 0), "and its page is drawn no more")
+
+    if failures > 0 {
+        print("\(failures) FAILED")
+        return 1
+    }
+    print("ALL WEBVIEW VIEW CHECKS PASSED")
+    return 0
+}

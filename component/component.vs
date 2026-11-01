@@ -39,6 +39,8 @@ public final class Node: Renderable, ExpressibleByNilLiteral, ExpressibleByStrin
     /// Live attributes: the value, or nil for none.
     var liveAttrs: [(string, () -> string?)] = []
     var handlers: [(string, (dom.Event) -> void)] = []
+    /// Handlers called as an event comes down to its target (onClickCapture).
+    var captureHandlers: [(string, (dom.Event) -> void)] = []
     var refs: [(html.Node?) -> void] = []
     /// The stylesheet of the package whose markup made the element.
     var sheet: Sheet? = nil
@@ -460,6 +462,7 @@ public enum AttributeKind {
     case flag(string, bool)
     case key(string)
     case handler(string, (dom.Event) -> void)
+    case captureHandler(string, (dom.Event) -> void)
     case liveText(string, () -> string?)
     case spread([string: string])
     case sheet(Sheet)
@@ -498,6 +501,14 @@ public struct Attribute {
     /// `onX={…}`: a handler, given the event as the type it is.
     public static func On<E: dom.Event>(_ event: string, _ type: E.Type, _ handler: (E) -> void) -> Attribute {
         return Attribute(.handler(event, { e in
+            if let typed = e as? E { handler(typed) }
+        }))
+    }
+
+    /// `onXCapture={…}`: a handler called as the event comes down to its
+    /// target, before the target's own handlers.
+    public static func OnCapture<E: dom.Event>(_ event: string, _ type: E.Type, _ handler: (E) -> void) -> Attribute {
+        return Attribute(.captureHandler(event, { e in
             if let typed = e as? E { handler(typed) }
         }))
     }
@@ -581,6 +592,8 @@ public func Element(_ tag: string, _ attributes: [Attribute], _ children: [any R
             n.key = k
         case .handler(let event, let h):
             n.handlers.append((event, h))
+        case .captureHandler(let event, let h):
+            n.captureHandlers.append((event, h))
         case .liveText(let name, let f):
             n.liveAttrs.append((name, f))
         case .spread(let attrs):

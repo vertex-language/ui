@@ -195,6 +195,18 @@ public final class Screen {
         state.Batch { _ = self.Page.Handle(.keyDown(web.Key(Key: key, Code: code))) }
     }
 
+    /// Releases a key where the focus is: keyup.
+    public func Release(_ key: string) {
+        let code = key.count == 1 ? "Key" + key.uppercased() : key
+        state.Batch { _ = self.Page.Handle(.keyUp(web.Key(Key: key, Code: code))) }
+    }
+
+    /// An input method composing text where the focus is: what it has so
+    /// far (compositionupdate), or "" to give it up.
+    public func Compose(_ text: string) {
+        state.Batch { _ = self.Page.Handle(.composition(text)) }
+    }
+
     /// A point the page hit-tests to the element or something in it.
     func pointOn(_ n: html.Node) -> draw.Point? {
         render()

@@ -214,6 +214,29 @@ public enum Cursor: Equatable {
     case resizeUpDown
     /// No cursor over this window.
     case hidden
+    case openHand
+    case closedHand
+    case notAllowed
+    case dragCopy
+    case dragLink
+    case contextMenu
+    case iBeamVertical
+    case resizeLeft
+    case resizeRight
+    case resizeUp
+    case resizeDown
+    /// The diagonal resize cursors: top left to bottom right, and top
+    /// right to bottom left.
+    case resizeNWSE
+    case resizeNESW
+    case move
+    case wait
+    case help
+    case zoomIn
+    case zoomOut
+    case cell
+    case resizeColumn
+    case resizeRow
 }
 
 /// Changes the mouse cursor shape when hovered over this window.
@@ -227,6 +250,27 @@ public func (w: borrowing Window) SetCursor(_ cursor: Cursor) {
     case .resizeLeftRight: c = 4
     case .resizeUpDown: c = 5
     case .hidden: c = 6
+    case .openHand: c = 7
+    case .closedHand: c = 8
+    case .notAllowed: c = 9
+    case .dragCopy: c = 10
+    case .dragLink: c = 11
+    case .contextMenu: c = 12
+    case .iBeamVertical: c = 13
+    case .resizeLeft: c = 14
+    case .resizeRight: c = 15
+    case .resizeUp: c = 16
+    case .resizeDown: c = 17
+    case .resizeNWSE: c = 18
+    case .resizeNESW: c = 19
+    case .move: c = 20
+    case .wait: c = 21
+    case .help: c = 22
+    case .zoomIn: c = 23
+    case .zoomOut: c = 24
+    case .cell: c = 25
+    case .resizeColumn: c = 26
+    case .resizeRow: c = 27
     }
     winSetCursor(w.Id, c)
 }

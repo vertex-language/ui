@@ -1,0 +1,75 @@
+// webview-demo: a browser as a .vsx page -- an address bar, back and
+// forward, and the page under them as a <webview.View>, a component like
+// any other. The chrome is markup; the page is drawn into its box.
+//
+//     vsc run webview-demo
+//     vsc run webview-demo -- https://example.com
+package main
+
+import (
+    "fs"
+    "ui/app"
+    "ui/webview"
+)
+
+/// Where the demo starts: an address on the command line, or the web
+/// engine's sample pages beside this repository.
+func startPage() -> string {
+    // The app's own flags, and the values they take, are not addresses.
+    let args = Array(CommandLine.arguments.dropFirst())
+    var i = 0
+    while i < args.count {
+        let a = args[i]
+        if a == "--snapshot" || a == "--snapshot-after" {
+            i += 2
+            continue
+        }
+        if !a.hasPrefix("-") { return a }
+        i += 1
+    }
+    var dir = ""
+    if let cwd = try? fs.Canonical(fs.Path(".")) {
+        let s = cwd.String()
+        dir = s.hasSuffix("/") ? s : s + "/"
+    }
+    return dir + "../web/testdata/pages/home.html"
+}
+
+func Browser() -> Element {
+    let view = useMemo({ webview.WebView() }, [])
+    let (address, setAddress) = useState(startPage())
+    let (go, setGo) = useState(startPage())
+    let (status, setStatus) = useState("")
+    return (
+        <div className="browser">
+            <form className="bar" onSubmit={e in
+                e.PreventDefault()
+                setGo(address)
+            }>
+                <button type="button" onClick={view.Back()} disabled={!view.CanGoBack}>←</button>
+                <button type="button" onClick={view.Forward()} disabled={!view.CanGoForward}>→</button>
+                <input className="address" value={address} onInput={e in setAddress(e.Value)} spellcheck="false" />
+                <button type="submit">Go</button>
+            </form>
+            <webview.View controller={view} url={go} class="page" onLoad={r in
+                setAddress(r.URL)
+                setStatus("\(r.Status) · \(r.Bytes) bytes · \(r.Milliseconds) ms")
+            } />
+            <div className="status">{status}</div>
+        </div>
+    )
+}
+
+let css = """
+html, body { height: 100%; }
+.browser { display: flex; flex-direction: column; height: 100%; }
+.bar { display: flex; gap: 6px; padding: 8px; background: #f3f4f6; border-bottom: 1px solid #d1d5db; }
+.bar button { padding: 4px 10px; }
+.address { flex: 1; padding: 4px 8px; }
+.page { flex: 1; display: block; }
+.status { padding: 2px 8px; font-size: 12px; color: #6b7280; background: #f9fafb; border-top: 1px solid #e5e7eb; }
+"""
+
+func main() async -> int32 {
+    return await app.Run(title: "webview-demo", width: 1000, height: 700, css: css) { <Browser /> }
+}

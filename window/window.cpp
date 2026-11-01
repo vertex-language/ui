@@ -117,7 +117,7 @@ export void winBeep() noexcept;
 // movement arrives as relativeMotion. Released while the window isn't key.
 export void winSetPointerLocked(int32_t window, int32_t locked) noexcept;
 export void winSetScaling(int32_t window, int32_t mode) noexcept;
-export void winSetCursor(int32_t window, int32_t cursor) noexcept; // 6: hidden
+export void winSetCursor(int32_t window, int32_t cursor) noexcept; // window.vs Cursor's code; 6: hidden
 
 // A cursor from width x height premultiplied RGBA8 pixels, top row first,
 // scale pixels per point, with its hot spot in pixels. Kept until the next

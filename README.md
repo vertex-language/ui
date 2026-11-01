@@ -49,14 +49,14 @@ vsc run lifecycle
 | Package | What it is | Native code |
 | :--- | :--- | :--- |
 | **`ui/window`** | A native window: creation, an async event queue, a frame clock, a pixel surface, cursors, the clipboard. | `window.cpp` (`ui.window`): Cocoa in `window_darwin.mm`, NativeActivity in `window_android.cpp` |
-| **`ui/webview`** | A `web.Page` in a window: the part of the window it covers, the window's events turned into the page's input, the page's cursor, and the system clipboard. | none |
+| **`ui/webview`** | A `web.Page` with navigation (files, the network, history, links). `<webview.View url={…} controller={…} />` shows one as a component, in a viewport; `WebView` alone can also cover a window, its events turned into the page's input. | none |
 | **`ui/state`** | Signals, computed values and effects: what an `@Observable` model is made of, and what markup in braces follows. It imports nothing, so code without a window can use it. | none |
 | **`ui/component`** | What `.vsx` markup lowers to (`Element`, `Attribute`, `Fragment`, `Component`, `Style`, `Node`), the hooks (`useState`, `useEffect`, `useRef`, `useMemo`, `createContext`/`use`, …), and `Mount`, which puts a root into a `dom.Document` and reconciles it: a component renders again when its state is set, keeping its elements, and braces follow the signals they read. | none |
 | **`ui/app`** | `app.Run`: a window whose page holds a mounted `.vsx` root, with events reaching its handlers. | none |
 | **`ui/componenttest`** | Headless tests of components: queries by role, label and text, input through the page, computed styles, pixel goldens. | none |
 | **`ui/icon`** | `<icon.Icon of={lucide.Settings} size={16} />`: an icon from the `icons` repository's sets as the page's `<svg>`, in the text's color. | none |
 | **`ui/kit`** | A few styled components, and the example of a library with `.vss` styles and tokens. | none |
-| **`ui/viewport`** | `Viewport(class:live:handle:) { w, h, t in pixels }`: a box in the page's layout that the program draws into itself (a 3D view, a terminal). The host draws it over the page each frame it wants one (live, or `Invalidate`d, from an event or a task: `SetWaker`), copies rows with memcpy, and paints the page's overlays back over it (`web.Page.DrawOver`). `Handle.Origin` and `Handle.Size` are where it was drawn, for pointer events. | none |
+| **`ui/viewport`** | `<Viewport source={…} />`: a box of the page that something else draws -- a web view, a remote desktop, a VM's screen, a canvas, a terminal. A `viewport.Source` subclass draws each frame at the box's size and is given the pointer, wheel, keys and text in the box; its `Handle` asks for frames, sets the cursor and takes the keyboard. The host (`ui/app`, `componenttest`) draws the viewports that want a frame over the page and paints the page's overlays back on top. | none |
 
 ---
 

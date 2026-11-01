@@ -10,6 +10,7 @@ module;
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/QuartzCore.h>
 #import <CoreText/CoreText.h>
+#import <objc/message.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
@@ -973,6 +974,52 @@ void winSetScaling(int32_t window, int32_t mode) noexcept {
     }
 }
 
+// AppKit's own cursors that have no public name before macOS 15 -- move,
+// help, wait, zoom, the diagonal resizes -- by the selectors WebKit uses,
+// where this AppKit answers them; fallback where it doesn't.
+static NSCursor* appKitCursor(const char* name, NSCursor* fallback) {
+    SEL sel = sel_registerName(name);
+    if ([NSCursor respondsToSelector:sel]) {
+        NSCursor* c = ((NSCursor* (*)(id, SEL))objc_msgSend)([NSCursor class], sel);
+        if (c != nil)
+            return c;
+    }
+    return fallback;
+}
+
+// The cursor for window.Cursor's code (window.vs, SetCursor).
+static NSCursor* cursorFor(int32_t cursor) {
+    switch (cursor) {
+    case 1: return [NSCursor pointingHandCursor];
+    case 2: return [NSCursor IBeamCursor];
+    case 3: return [NSCursor crosshairCursor];
+    case 4: return [NSCursor resizeLeftRightCursor];
+    case 5: return [NSCursor resizeUpDownCursor];
+    case 7: return [NSCursor openHandCursor];
+    case 8: return [NSCursor closedHandCursor];
+    case 9: return [NSCursor operationNotAllowedCursor];
+    case 10: return [NSCursor dragCopyCursor];
+    case 11: return [NSCursor dragLinkCursor];
+    case 12: return [NSCursor contextualMenuCursor];
+    case 13: return [NSCursor IBeamCursorForVerticalLayout];
+    case 14: return [NSCursor resizeLeftCursor];
+    case 15: return [NSCursor resizeRightCursor];
+    case 16: return [NSCursor resizeUpCursor];
+    case 17: return [NSCursor resizeDownCursor];
+    case 18: return appKitCursor("_windowResizeNorthWestSouthEastCursor", [NSCursor crosshairCursor]);
+    case 19: return appKitCursor("_windowResizeNorthEastSouthWestCursor", [NSCursor crosshairCursor]);
+    case 20: return appKitCursor("_moveCursor", [NSCursor openHandCursor]);
+    case 21: return appKitCursor("_waitCursor", [NSCursor arrowCursor]);
+    case 22: return appKitCursor("_helpCursor", [NSCursor arrowCursor]);
+    case 23: return appKitCursor("_zoomInCursor", [NSCursor arrowCursor]);
+    case 24: return appKitCursor("_zoomOutCursor", [NSCursor arrowCursor]);
+    case 25: return appKitCursor("_cellCursor", [NSCursor crosshairCursor]);
+    case 26: return appKitCursor("columnResizeCursor", [NSCursor resizeLeftRightCursor]);
+    case 27: return appKitCursor("rowResizeCursor", [NSCursor resizeUpDownCursor]);
+    default: return [NSCursor arrowCursor];
+    }
+}
+
 void winSetCursor(int32_t window, int32_t cursor) noexcept {
     CWWindow* w = windowOf(window);
     if (w == nil)
@@ -985,14 +1032,7 @@ void winSetCursor(int32_t window, int32_t cursor) noexcept {
         winSetCursorImage(window, clear, 1, 1, 0, 0, 1);
         return;
     }
-    switch (cursor) {
-    case 1: [[NSCursor pointingHandCursor] set]; break;
-    case 2: [[NSCursor IBeamCursor] set]; break;
-    case 3: [[NSCursor crosshairCursor] set]; break;
-    case 4: [[NSCursor resizeLeftRightCursor] set]; break;
-    case 5: [[NSCursor resizeUpDownCursor] set]; break;
-    default: [[NSCursor arrowCursor] set]; break;
-    }
+    [cursorFor(cursor) set];
 }
 
 static void freePixels(void* info, const void* data, size_t size);
