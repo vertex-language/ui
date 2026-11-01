@@ -8,11 +8,15 @@
 //
 // What the page paints over the box (a toolbar, a status line positioned
 // on top) is painted again over each frame, so overlays work; the page
-// itself is painted only when it changes. ui/app is the host: it calls
-// Composite after drawing the page, and componenttest does the same.
+// itself is painted only when it changes. ui/app is the host: on the GPU
+// where the platform has one (Accelerator, accel.vs), and otherwise it
+// calls Composite after drawing the page, as componenttest does. A source
+// draws with Draw (pixels, which every host takes) and, to skip the copy
+// through the host on the GPU, DrawTexture.
 package viewport
 
 import (
+    "gpu"
     "image/draw"
     "ui/component"
     "ui/state"
@@ -49,6 +53,13 @@ open class Source {
     /// The frame's RGBA pixels, premultiplied, top row first, Width ×
     /// Height of them. Fewer leaves the box as the page painted it.
     open func Draw(_ frame: Frame) -> [uint8] { return [] }
+
+    /// The frame drawn on the GPU, where the host draws with one: a
+    /// texture on `device`, Width × Height, premultiplied RGBA, shown in
+    /// the box with no copy through the host. Nil (the default) has the
+    /// host take Draw's pixels instead. A source that overrides this
+    /// still answers Draw, which is what a host without a GPU shows.
+    open func DrawTexture(_ frame: Frame, device: gpu.Device) -> gpu.Texture? { return nil }
 
     /// The source is in the document, in the box `handle` is; Detached,
     /// it is not, and is drawn no more.

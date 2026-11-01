@@ -8,17 +8,44 @@
 package main
 
 import (
+    "gpu"
     "ui/app"
     "ui/viewport"
 )
 
+/// The gradient on the GPU: what Draw makes, a texel at a time, made
+/// by a fragment shader. u[0] is the frame's width and height, the
+/// scroll and the hue; u[1] the marker's place and whether there is one.
+let gradientShader = """
+#include <metal_stdlib>
+using namespace metal;
+struct Out { float4 pos [[position]]; };
+vertex Out fullView(uint vid [[vertex_id]]) {
+    Out o;
+    o.pos = float4((vid & 1) != 0 ? 1.0 : -1.0, (vid & 2) != 0 ? -1.0 : 1.0, 0.0, 1.0);
+    return o;
+}
+fragment float4 gradient(Out in [[stage_in]], constant float4* u [[buffer(0)]]) {
+    float x = floor(in.pos.x);
+    float y = floor(in.pos.y);
+    if (u[1].z > 0.0 && abs(x - u[1].x) < 6.0 && abs(y - u[1].y) < 6.0) return float4(1.0);
+    float g = fmod(floor(y * 255.0 / max(1.0, u[0].y)) + u[0].z, 256.0) / 255.0;
+    float b = fmod(floor(x * 255.0 / max(1.0, u[0].x)), 256.0) / 255.0;
+    return float4(u[0].w / 255.0, g, b, 1.0);
+}
+"""
+
 /// A gradient that scrolls while live, with a marker where it was last
-/// clicked.
+/// clicked. It draws on the GPU where the app has one (DrawTexture), and
+/// on the CPU where it hasn't (Draw).
 final class Gradient: viewport.Source {
     var hue: float32 = 0.6
     var markX: float32 = -1
     var markY: float32 = -1
     var handle: viewport.Handle? = nil
+    var pipeline: gpu.RenderPipeline? = nil
+    var pipelineTried = false
+    var texture: gpu.Texture? = nil
 
     override init() {
         super.init()
@@ -42,6 +69,33 @@ final class Gradient: viewport.Source {
     func setHue(_ h: float32) {
         hue = h
         handle?.Invalidate()
+    }
+
+    override func DrawTexture(_ f: viewport.Frame, device: gpu.Device) -> gpu.Texture? {
+        if !pipelineTried {
+            pipelineTried = true
+            do {
+                let lib = try gpu.Library(device: device, source: gradientShader)
+                pipeline = try gpu.RenderPipeline(device: device, vertex: try lib.Function("fullView"),
+                                                  fragment: try lib.Function("gradient"), gpu.PipelineDescriptor())
+            } catch {
+                print("viewport-demo: drawing on the CPU: \(error)")
+            }
+        }
+        guard let p = pipeline else { return nil }
+        if texture == nil || texture!.Width != f.Width || texture!.Height != f.Height {
+            texture = gpu.Texture.Create(device: device, width: f.Width, height: f.Height, format: .rgba8)
+        }
+        guard let t = texture, let pass = gpu.RenderPass.Begin(device: device, color: t, depth: nil) else { return nil }
+        let shift = (handle?.Live ?? false) ? int(f.Time * 60) : 0
+        let u: [float32] = [float32(f.Width), float32(f.Height), float32(shift), float32(int(hue * 255) & 255),
+                            markX * f.Scale, markY * f.Scale, markX >= 0 ? 1 : 0, 0]
+        pass.SetPipeline(p)
+        pass.SetViewport(x: 0, y: 0, width: float32(f.Width), height: float32(f.Height), near: 0, far: 1)
+        u.withUnsafeBytes { b in pass.SetBytes(fragment: true, b.baseAddress!, count: b.count, index: 0) }
+        pass.Draw(primitive: 4, start: 0, count: 4, instances: 1)
+        pass.End()
+        return t
     }
 
     override func Draw(_ f: viewport.Frame) -> [uint8] {

@@ -56,7 +56,7 @@ vsc run lifecycle
 | **`ui/componenttest`** | Headless tests of components: queries by role, label and text, input through the page, computed styles, pixel goldens. | none |
 | **`ui/icon`** | `<icon.Icon of={lucide.Settings} size={16} />`: an icon from the `icons` repository's sets as the page's `<svg>`, in the text's color. | none |
 | **`ui/kit`** | A few styled components, and the example of a library with `.vss` styles and tokens. | none |
-| **`ui/viewport`** | `<Viewport source={…} />`: a box of the page that something else draws -- a web view, a remote desktop, a VM's screen, a canvas, a terminal. A `viewport.Source` subclass draws each frame at the box's size and is given the pointer, wheel, keys and text in the box; its `Handle` asks for frames, sets the cursor and takes the keyboard. The host (`ui/app`, `componenttest`) draws the viewports that want a frame over the page and paints the page's overlays back on top. | none |
+| **`ui/viewport`** | `<Viewport source={…} />`: a box of the page that something else draws -- a web view, a remote desktop, a VM's screen, a canvas, a terminal. A `viewport.Source` subclass draws each frame at the box's size and is given the pointer, wheel, keys and text in the box; its `Handle` asks for frames, sets the cursor and takes the keyboard. The host (`ui/app`, `componenttest`) draws the viewports that want a frame over the page and paints the page's overlays back on top. Where there is a GPU (Metal, on macOS) `ui/app` composes on it through `viewport.Accelerator`: the page goes up only when painted, a source that overrides `DrawTexture` hands over a texture with no copy through the host, and the overlays are one texture made with the page; elsewhere it draws on the CPU, and every source's `Draw` is that path. | none |
 
 ---
 
@@ -89,8 +89,9 @@ applied to the elements already in the page, which keep their identity
 (and their focus). A model shared by many components is an `@Observable`
 class: what markup reads of it in braces follows it by itself. The page is painted only when
 it changed; between, frames are only its viewports. `VSX_TRACE=1` in the
-environment prints each frame's cost (page, viewports, present) and any
-slow event; `VSX_QUIT_AFTER=seconds` quits by itself (for timing an app
+environment prints whether frames are drawn on the GPU or the CPU, each
+frame's cost (page, viewports and present) and any slow event;
+`VSX_NO_GPU=1` draws on the CPU where there is a GPU; `VSX_QUIT_AFTER=seconds` quits by itself (for timing an app
 unattended), as `app.Quit()` does from code. `vsc run vsx-demo -- --snapshot
 out.png` draws the first frame to a PNG and quits.
 

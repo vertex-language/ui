@@ -54,6 +54,10 @@ final class Host {
     /// VSX_TRACE=1 in the environment: print what each frame and each
     /// slow event cost.
     let trace = (env.Get("VSX_TRACE") ?? "") != ""
+    /// The GPU path, where the platform has one: the page and its
+    /// viewports composed on the device. Nil draws on the CPU and
+    /// presents through the window's surface (VSX_NO_GPU=1 forces that).
+    var accel: viewport.Accelerator? = nil
 
     init(win: window.Window) {
         self.win = win
@@ -62,6 +66,9 @@ final class Host {
         pixelSize = win.PixelSize()
         pixels = [uint8](repeating: 0, count: int(pixelSize.Width) * int(pixelSize.Height) * 4)
         view.SetBounds(origin: window.Point(0, 0), size: win.Size())
+        accel = viewport.Accelerator.Make(view: surface.RawParts().view, width: int(pixelSize.Width), height: int(pixelSize.Height),
+                                          scale: float64(win.ScaleFactor()))
+        if trace { print("app: drawing on \(accel != nil ? "the GPU (\(accel!.Device.Name))" : "the CPU")") }
         // An app's page goes nowhere: a link or a submit is the app's to
         // handle, in its handlers.
         view.Page.OnNavigate { _ in }
@@ -89,6 +96,7 @@ final class Host {
             pixelSize = px
             pixels = [uint8](repeating: 0, count: int(pixelSize.Width) * int(pixelSize.Height) * 4)
         }
+        accel?.Resize(width: int(px.Width), height: int(px.Height), scale: float64(win.ScaleFactor()))
         stale = true
         view.SetBounds(origin: window.Point(0, 0), size: win.Size())
         requestFrame()
@@ -106,11 +114,18 @@ final class Host {
             stale = false
         }
         let t1 = time.Instant.Now()
-        let drew = viewport.Composite(view.Page, &pixels, width: int(pixelSize.Width), height: int(pixelSize.Height),
+        var drew = false
+        if let a = accel {
+            // On the GPU: the page goes up only when painted; the
+            // viewports land in their boxes there, and the layer shows it.
+            drew = a.Present(view.Page, pagePixels: pixels, repainted: repaint, scale: win.ScaleFactor(), time: t)
+        } else {
+            drew = viewport.Composite(view.Page, &pixels, width: int(pixelSize.Width), height: int(pixelSize.Height),
                                       scale: win.ScaleFactor(), time: t, all: repaint)
+        }
         let t2 = time.Instant.Now()
         if viewport.Wanted() { requestFrame() }
-        if repaint || drew || snapshotPath != nil {
+        if accel == nil && (repaint || drew || snapshotPath != nil) {
             do {
                 try surface.Present(pixels, size: pixelSize)
             } catch let e as window.WindowError {
@@ -118,13 +133,16 @@ final class Host {
             } catch {}
         }
         if trace && (repaint || drew) {
-            print("app: frame \(pixelSize.Width)x\(pixelSize.Height): page \(repaint ? "\(ms(t0, t1)) ms" : "kept"), viewports \(ms(t1, t2)) ms, present \(t2.Elapsed().AsMilliseconds()) ms")
+            let path = accel != nil ? "gpu" : "cpu"
+            print("app: \(path) frame \(pixelSize.Width)x\(pixelSize.Height): page \(repaint ? "\(ms(t0, t1)) ms" : "kept"), viewports and present \(ms(t1, t2)) ms, all \(t0.Elapsed().AsMilliseconds()) ms")
         }
         if snapshotPath != nil && !done && snapshotAfter > 0 && snapshotBegun.Elapsed().AsSeconds() < snapshotAfter {
             // Not yet: keep frames coming until it is time.
             requestFrame()
         } else if let path = snapshotPath, !done {
-            try? fs.WriteFile(fs.Path(path), png.Encode(image.RGBA(width: int(pixelSize.Width), height: int(pixelSize.Height), pixels: pixels)))
+            // On the GPU the viewports are on the device: read the frame back.
+            let shot = accel?.Capture() ?? pixels
+            try? fs.WriteFile(fs.Path(path), png.Encode(image.RGBA(width: int(pixelSize.Width), height: int(pixelSize.Height), pixels: shot)))
             done = true
             win.RequestFrame()
         }

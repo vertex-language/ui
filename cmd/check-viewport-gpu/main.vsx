@@ -1,0 +1,176 @@
+// ui/viewport's GPU path checked against its CPU one: the same page, with
+// a viewport that answers pixels, one that answers a texture, and a bar
+// the page paints over a viewport, composed both ways must come out the
+// same, pixel for pixel. And a frame that only a viewport changed draws
+// that viewport alone. Without a GPU there is nothing to compare: the
+// check says so and passes.
+package main
+
+import (
+    "gpu"
+    "ui/componenttest"
+    "ui/viewport"
+)
+
+var failures = 0
+
+func check(_ ok: bool, _ what: string) {
+    if ok {
+        print("ok    \(what)")
+    } else {
+        print("FAIL  \(what)")
+        failures += 1
+    }
+}
+
+/// Pixels made from the frame's size and a shade, the same each time.
+func pattern(_ w: int, _ h: int, _ shade: int) -> [uint8] {
+    var px = [uint8](repeating: 255, count: w * h * 4)
+    var y = 0
+    while y < h {
+        var x = 0
+        while x < w {
+            let o = (y * w + x) * 4
+            px[o] = uint8((x * 7 + shade) & 255)
+            px[o + 1] = uint8((y * 5) & 255)
+            px[o + 2] = uint8((x + y + shade) & 255)
+            x += 1
+        }
+        y += 1
+    }
+    return px
+}
+
+/// A source that answers pixels.
+final class Bytes: viewport.Source {
+    var shade = 0
+    var draws = 0
+    var handle: viewport.Handle? = nil
+    override init() { super.init() }
+    override func Attached(_ h: viewport.Handle) { handle = h }
+    override func Draw(_ f: viewport.Frame) -> [uint8] {
+        draws += 1
+        return pattern(f.Width, f.Height, shade)
+    }
+}
+
+/// A source that answers a texture on the GPU, and the same pixels on
+/// the CPU.
+final class OnDevice: viewport.Source {
+    var textures = 0
+    override init() { super.init() }
+    override func Draw(_ f: viewport.Frame) -> [uint8] {
+        return pattern(f.Width, f.Height, 90)
+    }
+    override func DrawTexture(_ f: viewport.Frame, device: gpu.Device) -> gpu.Texture? {
+        guard let t = gpu.Texture.Create(device: device, width: f.Width, height: f.Height, format: .rgba8) else { return nil }
+        let px = pattern(f.Width, f.Height, 90)
+        px.withUnsafeBytes { b in t.Write(x: 0, y: 0, width: f.Width, height: f.Height, bytes: b.baseAddress!, bytesPerRow: f.Width * 4) }
+        textures += 1
+        return t
+    }
+}
+
+// Made in main: a global's initializer can't call a @MainActor init
+// (vsc_TODO).
+var bytes: Bytes! = nil
+var onDevice: OnDevice! = nil
+
+func Page() -> Element {
+    return (
+        <div className="page">
+            <div className="a">{viewport.Viewport(source: bytes, class: "one")}<div className="bar">over</div></div>
+            {viewport.Viewport(source: onDevice, class: "two")}
+        </div>
+    )
+}
+
+let css = """
+body { margin: 0; background: #fff; }
+.a { position: relative; }
+.one { width: 120px; height: 80px; }
+.two { width: 90px; height: 60px; margin-left: 150px; }
+.bar { position: absolute; left: 10px; top: 60px; width: 100px; height: 12px; background: rgba(0, 0, 0, 0.5); }
+"""
+
+/// Whether two frames agree to within one step in every channel: what
+/// the page paints over a viewport is blended onto the frame directly on
+/// the CPU, and onto a transparent overlay put over it on the GPU, which
+/// rounds a translucent bar's pixels a step apart. Everything else --
+/// the page, each viewport's pixels -- must be exact.
+func same(_ a: [uint8], _ b: [uint8]) -> (bool, int) {
+    if a.count != b.count { return (false, -1) }
+    var i = 0
+    while i < a.count {
+        let d = int(a[i]) - int(b[i])
+        if d > 1 || d < -1 { return (false, i / 4) }
+        i += 1
+    }
+    return (true, 0)
+}
+
+/// How many pixels differ at all.
+func differing(_ a: [uint8], _ b: [uint8]) -> int {
+    var n = 0
+    var i = 0
+    while i + 3 < a.count {
+        if a[i] != b[i] || a[i + 1] != b[i + 1] || a[i + 2] != b[i + 2] || a[i + 3] != b[i + 3] { n += 1 }
+        i += 4
+    }
+    return n
+}
+
+func main() async -> int32 {
+    guard let acc = viewport.Accelerator.Offscreen(width: 300, height: 200) else {
+        print("no GPU: the CPU path is the only one here")
+        print("ALL VIEWPORT GPU CHECKS PASSED")
+        return 0
+    }
+    bytes = Bytes()
+    onDevice = OnDevice()
+    let s = componenttest.Mount(width: 300, height: 200, css: css) { <Page /> }
+    let cpu = s.Pixels().Image.Pixels
+
+    var page = [uint8](repeating: 0, count: 300 * 200 * 4)
+    s.Page.Draw(into: &page, width: 300, height: 200, scale: 1)
+    check(acc.Present(s.Page, pagePixels: page, repainted: true, scale: 1, time: 0), "a first frame is composed on the GPU")
+    let gpuPixels = acc.ReadBack()
+    let (equal, at) = same(cpu, gpuPixels)
+    check(equal, "the GPU frame is the CPU frame to within a step (first difference at x \(at % 300), y \(at / 300))")
+    // The bar is 100 × 12 pixels: rounding apart there and nowhere else.
+    check(differing(cpu, gpuPixels) <= 100 * 12, "and any pixels apart are under the translucent bar (\(differing(cpu, gpuPixels)))")
+    // The texture source's box, away from the bar, must be exact.
+    var texExact = true
+    var y = 0
+    while y < 60 {
+        var x = 150
+        while x < 240 {
+            let o = (y * 300 + x) * 4
+            if cpu[o] != gpuPixels[o] || cpu[o + 1] != gpuPixels[o + 1] || cpu[o + 2] != gpuPixels[o + 2] { texExact = false }
+            x += 1
+        }
+        y += 1
+    }
+    check(texExact, "the texture source's box is exactly its pixels")
+
+    check(onDevice.textures == 1, "a source with a texture is drawn from it on the GPU (\(onDevice.textures))")
+
+    // Only the first viewport changes: it alone is drawn, and the page
+    // is not sent again.
+    let before = bytes.draws
+    let texturesBefore = onDevice.textures
+    bytes.shade = 40
+    bytes.handle?.Invalidate()
+    check(acc.Present(s.Page, pagePixels: [], repainted: false, scale: 1, time: 1), "a frame with only a viewport changed is shown")
+    check(bytes.draws == before + 1 && onDevice.textures == texturesBefore, "only the viewport that asked is drawn again")
+    let cpu2 = s.Pixels(time: 1).Image.Pixels
+    let (equal2, at2) = same(cpu2, acc.ReadBack())
+    check(equal2, "and the frame still matches the CPU's, the bar over it kept (first difference at \(at2 % 300), \(at2 / 300))")
+
+    if failures == 0 {
+        print("ALL VIEWPORT GPU CHECKS PASSED")
+        return 0
+    }
+    print("\(failures) FAILED")
+    return 1
+}
