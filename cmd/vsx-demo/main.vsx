@@ -7,22 +7,19 @@
 package main
 
 import (
-    "ui/state"
     "ui/app"
-    "ui/component"
-    "web/dom"
 )
 
 func Counter(start: int = 0) -> Element {
-    @state.State var count = start
+    let (count, setCount) = useState(start)
     return (
         <section className="card">
             <h2>Counter</h2>
             <p className="big">{count}</p>
             <div className="row">
-                <button onClick={count -= 1}>−</button>
-                <button className="primary" onClick={count += 1}>Clicked {count} times</button>
-                <button onClick={count = start}>Reset</button>
+                <button onClick={setCount(count - 1)}>−</button>
+                <button className="primary" onClick={setCount(count + 1)}>Clicked {count} times</button>
+                <button onClick={setCount(start)}>Reset</button>
             </div>
             <p className={count >= 10 ? "hint warn" : "hint"}>{count >= 10 ? "That's plenty." : "Click the blue button."}</p>
         </section>
@@ -38,24 +35,22 @@ struct Todo {
 enum Filter { case all, active, done }
 
 func Tasks() -> Element {
-    @state.State var todos: [Todo] = [Todo(ID: 1, Title: "Try the counter", Done: true),
-                                         Todo(ID: 2, Title: "Add a task below", Done: false)]
-    @state.State var draft = ""
-    @state.State var filter = Filter.all
-    @state.State var nextID = 3
+    let (todos, setTodos) = useState<[Todo]>([
+        Todo(ID: 1, Title: "Try the counter", Done: true),
+        Todo(ID: 2, Title: "Add a task below", Done: false)
+    ])
+    let (draft, setDraft) = useState("")
+    let (filter, setFilter) = useState(Filter.all)
+    let (nextID, setNextID) = useState(3)
 
-    // Read inside braces, so what shows follows todos and filter: the
-    // component itself runs once.
-    let visible = {
-        todos.filter { t in
-            switch filter {
-            case .all: return true
-            case .active: return !t.Done
-            case .done: return t.Done
-            }
+    let visible = todos.filter { t in
+        switch filter {
+        case .all: return true
+        case .active: return !t.Done
+        case .done: return t.Done
         }
     }
-    let left = { todos.filter { !$0.Done }.count }
+    let left = todos.filter { !$0.Done }.count
 
     return (
         <section className="card">
@@ -63,28 +58,28 @@ func Tasks() -> Element {
             <form onSubmit={e in
                 e.PreventDefault()
                 if !draft.isEmpty {
-                    todos.append(Todo(ID: nextID, Title: draft, Done: false))
-                    nextID += 1
-                    draft = ""
+                    setTodos(todos + [Todo(ID: nextID, Title: draft, Done: false)])
+                    setNextID(nextID + 1)
+                    setDraft("")
                 }
             }>
-                <input placeholder="What needs doing? (Enter to add)" value={$draft} />
+                <input placeholder="What needs doing? (Enter to add)" value={draft} onInput={e in setDraft(e.Value)} />
             </form>
             <ul>
-                {visible().map { t in
+                {visible.map { t in
                     <li key={t.ID} className={t.Done ? "done" : ""} onClick={
-                        for i in 0..<todos.count where todos[i].ID == t.ID { todos[i].Done = !todos[i].Done }
+                        setTodos(todos.map { it in it.ID == t.ID ? Todo(ID: it.ID, Title: it.Title, Done: !it.Done) : it })
                     }>
                         <span className="box">{t.Done ? "✓" : ""}</span>{t.Title}
                     </li>
                 }}
             </ul>
             <div className="row small">
-                <span>{left()} left</span>
-                <button className={filter == .all ? "on" : ""} onClick={filter = .all}>All</button>
-                <button className={filter == .active ? "on" : ""} onClick={filter = .active}>Active</button>
-                <button className={filter == .done ? "on" : ""} onClick={filter = .done}>Done</button>
-                <button onClick={todos = todos.filter { !$0.Done }}>Clear done</button>
+                <span>{left} left</span>
+                <button className={filter == .all ? "on" : ""} onClick={setFilter(.all)}>All</button>
+                <button className={filter == .active ? "on" : ""} onClick={setFilter(.active)}>Active</button>
+                <button className={filter == .done ? "on" : ""} onClick={setFilter(.done)}>Done</button>
+                <button onClick={setTodos(todos.filter { !$0.Done })}>Clear done</button>
             </div>
         </section>
     )

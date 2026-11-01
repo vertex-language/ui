@@ -2,7 +2,7 @@
 // mounted headless in a real page, found by role, label, text or
 // placeholder, clicked and typed into through the page's own input, and
 // looked at -- their computed styles, and their pixels against a golden
-// image (proposed_vsx.md §11).
+// image.
 //
 //     let screen = componenttest.Mount(width: 420, height: 600) { <App store={store} /> }
 //     screen.Type(into: screen.ByPlaceholder("What needs doing?"), "buy milk")

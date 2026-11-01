@@ -50,8 +50,8 @@ vsc run lifecycle
 | :--- | :--- | :--- |
 | **`ui/window`** | A native window: creation, an async event queue, a frame clock, a pixel surface, cursors, the clipboard. | `window.cpp` (`ui.window`): Cocoa in `window_darwin.mm`, NativeActivity in `window_android.cpp` |
 | **`ui/webview`** | A `web.Page` in a window: the part of the window it covers, the window's events turned into the page's input, the page's cursor, and the system clipboard. | none |
-| **`ui/state`** | Signals, computed values, effects and `@State`: the state a `.vsx` app keeps. It imports nothing, so code without a window can use it. | none |
-| **`ui/component`** | What `.vsx` markup lowers to (`Element`, `Attribute`, `Fragment`, `Style`, `Node`), and `Mount`, which puts a root into a `dom.Document` and patches it when a signal it read changes. | none |
+| **`ui/state`** | Signals, computed values and effects: what an `@Observable` model is made of, and what markup in braces follows. It imports nothing, so code without a window can use it. | none |
+| **`ui/component`** | What `.vsx` markup lowers to (`Element`, `Attribute`, `Fragment`, `Component`, `Style`, `Node`), the hooks (`useState`, `useEffect`, `useRef`, `useMemo`, `createContext`/`use`, …), and `Mount`, which puts a root into a `dom.Document` and reconciles it: a component renders again when its state is set, keeping its elements, and braces follow the signals they read. | none |
 | **`ui/app`** | `app.Run`: a window whose page holds a mounted `.vsx` root, with events reaching its handlers. | none |
 | **`ui/componenttest`** | Headless tests of components: queries by role, label and text, input through the page, computed styles, pixel goldens. | none |
 | **`ui/icon`** | `<icon.Icon of={lucide.Settings} size={16} />`: an icon from the `icons` repository's sets as the page's `<svg>`, in the text's color. | none |
@@ -62,23 +62,20 @@ vsc run lifecycle
 
 ## A .vsx app
 
-Markup in a `.vsx` file is Vertex with JSX (the design is `proposed_vsx.md`).
-A component is a function; state is `@state.State`; a handler is the
-braces in an `on…` attribute.
+Markup in a `.vsx` file is Vertex with JSX (the language is `docs/vsx.md` in
+vsc). A `.vsx` file imports `ui/component` and `web/dom` by itself. A
+component is a function; its state is `useState`; a handler is the braces
+in an `on…` attribute; a field is controlled, `value={draft}
+onInput={e in setDraft(e.Value)}`.
 
 ```vsx
 package main
 
-import (
-    "ui/state"
-    "ui/app"
-    "ui/component"
-    "web/dom"
-)
+import "ui/app"
 
 func Counter(start: int = 0) -> Element {
-    @state.State var count = start
-    return <button onClick={count += 1}>Clicked {count} times</button>
+    let (count, setCount) = useState(start)
+    return <button onClick={setCount(count + 1)}>Clicked {count} times</button>
 }
 
 func main() async -> int32 {
@@ -87,8 +84,10 @@ func main() async -> int32 {
 ```
 
 A click reaches the button through the page's own events (`web/dom`), the
-handler writes `count`, and the root is rendered again and the page
-patched in place once the event is done. The page is painted only when
+handler sets `count`, and `Counter` renders again: its new markup is
+applied to the elements already in the page, which keep their identity
+(and their focus). A model shared by many components is an `@Observable`
+class: what markup reads of it in braces follows it by itself. The page is painted only when
 it changed; between, frames are only its viewports. `VSX_TRACE=1` in the
 environment prints each frame's cost (page, viewports, present) and any
 slow event; `VSX_QUIT_AFTER=seconds` quits by itself (for timing an app

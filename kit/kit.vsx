@@ -3,22 +3,17 @@
 // else, and which a program themes through the kit's tokens.
 package kit
 
-import (
-    "ui/component"
-    "web/dom"
-)
-
 /// A titled box around its children.
-public func Card(title: string, children: Children) -> Element {
+public func Card(title: string, children: Node = nil) -> Element {
     return (
         <section className="card">
             <h3 className="title">{title}</h3>
-            {children()}
+            {children}
         </section>
     )
 }
 
 /// A button in the kit's accent color.
 public func Button(label: string, onPress: () -> void) -> Element {
-    return <button className="button" onClick={onPress()}>{label}</button>
+    return <button className="button" onClick={onPress}>{label}</button>
 }

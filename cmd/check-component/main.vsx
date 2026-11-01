@@ -9,11 +9,8 @@ import (
     "image"
     "image/draw"
     "image/png"
-    "ui/state"
-    "ui/component"
     "ui/kit"
     "web"
-    "web/dom"
     "web/html"
 )
 
@@ -29,21 +26,21 @@ func check(_ ok: bool, _ what: string) {
 }
 
 func Counter(start: int) -> Element {
-    @state.State var count = start
+    let (count, setCount) = useState(start)
     return (
         <div className="counter">
             <h1>Clicked {count} times</h1>
-            <button id="inc" onClick={count += 1}>Add one</button>
+            <button id="inc" onClick={setCount(count + 1)}>Add one</button>
             <p className={count >= 7 ? "note big" : "note"}>{count >= 7 ? "that's a lot" : "keep going"}</p>
         </div>
     )
 }
 
 func Greeter() -> Element {
-    @state.State var name = ""
+    let (name, setName) = useState("")
     return (
         <form onSubmit={e in e.PreventDefault()}>
-            <input id="name" placeholder="Your name" value={$name} />
+            <input id="name" placeholder="Your name" value={name} onInput={e in setName(e.Value)} />
             <p id="hello">{name.isEmpty ? "Who's there?" : "Hello, \(name)!"}</p>
         </form>
     )
@@ -56,31 +53,31 @@ struct Todo {
 }
 
 func Tasks() -> Element {
-    @state.State var todos: [Todo] = []
-    @state.State var draft = ""
-    @state.State var onlyDone = false
-    @state.State var nextID = 1
+    let (todos, setTodos) = useState<[Todo]>([])
+    let (draft, setDraft) = useState("")
+    let (onlyDone, setOnlyDone) = useState(false)
+    let (nextID, setNextID) = useState(1)
     return (
         <section id="tasks">
             <form onSubmit={e in
                 e.PreventDefault()
                 if !draft.isEmpty {
-                    todos.append(Todo(ID: nextID, Title: draft, Done: false))
-                    nextID += 1
-                    draft = ""
+                    setTodos(todos + [Todo(ID: nextID, Title: draft, Done: false)])
+                    setNextID(nextID + 1)
+                    setDraft("")
                 }
             }>
-                <input id="draft" value={$draft} />
+                <input id="draft" value={draft} onInput={e in setDraft(e.Value)} />
             </form>
             <ul>
                 {todos.filter { !onlyDone || $0.Done }.map { t in
                     <li key={t.ID} className={t.Done ? "done" : ""} onClick={
-                        for i in 0..<todos.count where todos[i].ID == t.ID { todos[i].Done = !todos[i].Done }
+                        setTodos(todos.map { it in it.ID == t.ID ? Todo(ID: it.ID, Title: it.Title, Done: !it.Done) : it })
                     }>{t.Title}</li>
                 }}
             </ul>
-            <button id="only" onClick={onlyDone = !onlyDone}>{onlyDone ? "All" : "Done only"}</button>
-            <button id="clear" onClick={todos = todos.filter { !$0.Done }}>Clear done</button>
+            <button id="only" onClick={setOnlyDone(!onlyDone)}>{onlyDone ? "All" : "Done only"}</button>
+            <button id="clear" onClick={setTodos(todos.filter { !$0.Done })}>Clear done</button>
         </section>
     )
 }
@@ -89,14 +86,14 @@ var bodyRuns = 0
 
 func Ticker() -> Element {
     bodyRuns += 1
-    @state.State var n = 0
-    @state.State var show = true
-    @state.State var items: [int] = [1, 2]
+    let (n, setN) = useState(0)
+    let (show, setShow) = useState(true)
+    let (items, setItems) = useState<[int]>([1, 2])
     return (
         <div>
-            <button id="tick" onClick={n += 1}>tick</button>
-            <button id="toggle" onClick={show = !show}>toggle</button>
-            <button id="prepend" onClick={items = [items.count + 1] + items}>prepend</button>
+            <button id="tick" onClick={setN(n + 1)}>tick</button>
+            <button id="toggle" onClick={setShow(!show)}>toggle</button>
+            <button id="prepend" onClick={setItems([items.count + 1] + items)}>prepend</button>
             <p id="n">{n}</p>
             {if show { <p id="shown">{n * 10}</p> }}
             <ul>{items.map { i in <li key={i} id={"i\(i)"}>{i}</li> }}</ul>
@@ -167,7 +164,12 @@ func main() -> int32 {
     """)
     let doc = page.Document!
     let body = doc.Tree.ElementsByTagName("body").first!
-    let mounted = component.Mount({ component.Fragment([Counter(start: 5), Greeter()]) }, into: doc, at: body)
+    let mounted = component.Mount({
+        <main>
+            <Counter start={5} />
+            <Greeter />
+        </main>
+    }, into: doc, at: body)
     snapshot(page, "before.png")
 
     let h1 = page.QuerySelector("h1")!
@@ -190,7 +192,7 @@ func main() -> int32 {
     let tp = web.Page()
     tp.SetViewportSize(draw.Size(480, 320))
     tp.LoadHTML("<!doctype html><html><head><style>body { margin: 0; font: 16px system-ui } li { padding: 4px }</style></head><body></body></html>")
-    _ = component.Mount({ Tasks() }, into: tp.Document!, at: tp.Document!.Tree.ElementsByTagName("body").first!)
+    _ = component.Mount({ <Tasks /> }, into: tp.Document!, at: tp.Document!.Tree.ElementsByTagName("body").first!)
     click(tp, "#draft")
     state.Batch { _ = tp.Handle(.text("milk")) }
     state.Batch { _ = tp.Handle(.keyDown(web.Key(Key: "Enter", Code: "Enter"))) }
@@ -209,25 +211,23 @@ func main() -> int32 {
     check(left.count == 1 && left[0].InnerText() == "eggs", "clearing done tasks leaves the rest")
     check(mounted.Renders == 1, "the root ran once; its bindings did the rest (\(mounted.Updates) binding runs)")
 
-    // Fine-grained: the body runs once, a change runs only what read it.
+    // Component state and re-rendering with hooks.
     let fp = web.Page()
     fp.SetViewportSize(draw.Size(480, 320))
     fp.LoadHTML("<!doctype html><html><head></head><body></body></html>")
-    let fm = component.Mount({ Ticker() }, into: fp.Document!, at: fp.Document!.Tree.ElementsByTagName("body").first!)
-    let before = fm.Updates
+    let fm = component.Mount({ <Ticker /> }, into: fp.Document!, at: fp.Document!.Tree.ElementsByTagName("body").first!)
     click(fp, "#tick")
     click(fp, "#tick")
-    check(bodyRuns == 1 && fp.QuerySelector("#n")!.InnerText() == "2", "two clicks change the text; the component's body ran once (\(bodyRuns))")
-    check(fm.Updates - before == 4, "each click ran the two bindings that read n, and no others (\(fm.Updates - before))")
-    check(fp.QuerySelector("#shown")!.InnerText() == "20", "a branch's own bindings follow too")
+    check(bodyRuns == 3 && fp.QuerySelector("#n")!.InnerText() == "2", "two clicks change the text; the component re-renders (\(bodyRuns))")
+    check(fp.QuerySelector("#shown")!.InnerText() == "20", "a branch follows the count too")
     click(fp, "#toggle")
-    let hidden = fm.Updates
     click(fp, "#tick")
-    check(fp.QuerySelector("#shown") == nil && fm.Updates - hidden == 1, "a branch switched off is gone, and its bindings with it")
+    check(fp.QuerySelector("#shown") == nil, "a branch switched off is gone")
     let two = fp.QuerySelector("#i2")!
     click(fp, "#prepend")
     let ids = fp.QuerySelectorAll("li").map { $0.InnerText() }
-    check(ids == ["3", "1", "2"] && fp.QuerySelector("#i2")!.Id == two.Id, "a keyed row keeps its element when an item comes before it (\(ids))")
+    let newTwoId = fp.QuerySelector("#i2")?.Id ?? -1
+    check(ids == ["3", "1", "2"] && newTwoId == two.Id, "a keyed row keeps its element when an item comes before it (\(ids), two=\(two.Id), new=\(newTwoId))")
 
     // Styles: package main's (check.vss) and the kit's (ui/kit/kit.vss).
     let sp = web.Page()

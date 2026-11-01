@@ -6,8 +6,8 @@
 //     }
 //
 // A click, a key or typing reaches the page's elements as events; the
-// handlers they run write state; and the root is rendered again and the
-// page patched once the event is done (proposed_vsx.md §8.1). This is the
+// handlers they run set state; and what that changes is rendered again and
+// the page patched once the event is done (docs/vsx.md in vsc). This is the
 // first form of app.Run: one window, and styles given as a string until
 // .vss files are compiled. `--snapshot out.png` on the command line draws
 // the first frame into a PNG and quits (`--snapshot-after 2`: the first

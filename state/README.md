@@ -1,8 +1,10 @@
 # ui/state
 
-The state a `.vsx` app keeps, and what follows it: values that say when
-they change, computations that follow them, and effects that run again
-when what they read changes (`proposed_vsx.md` §5). It imports nothing --
+The signal graph under a `.vsx` app: values that say when they change,
+computations that follow them, and effects that run again when what they
+read changes. An `@Observable` model is made of it, and markup in braces
+follows it (`docs/vsx.md` in vsc); a component's own state is `useState`
+(`ui/component`). It imports nothing --
 the rest of `ui` is built on it -- so a model, a cache or anything without
 a window can use it too.
 

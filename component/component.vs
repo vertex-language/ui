@@ -1,21 +1,23 @@
 // Package component is what markup in a .vsx file lowers to, and what
-// puts it in a document (proposed_vsx.md).
+// puts it in a document (docs/vsx.md in vsc).
 //
-//     <p className={on ? "x on" : "x"} onClick={n += 1}>Hi {name}</p>
+//     <p className={on ? "x on" : "x"} onClick={setN(n + 1)}>Hi {name}</p>
 //
 // is checked and lowered as
 //
 //     component.Element("p", [
 //         component.Attribute.Live("class", { on ? "x on" : "x" }),
-//         component.Attribute.On("click", dom.MouseEvent.self, { _ in n += 1 }),
+//         component.Attribute.On("click", dom.MouseEvent.self, { _ in setN(n + 1) }),
 //     ], ["Hi ", component.Live({ name })])
 //
-// Element and Fragment make Nodes, a description; Mount makes them real,
-// once. What the markup wrote in braces -- `{name}`, `className={...}` -- is
-// live: Mount runs it as its own effect, which updates its own text or
-// attribute when a signal it read changes, and nothing else. Components
-// run once, untracked (`Component`), so a component's body is never run
-// again by a change it read; `@State` in it is made once.
+// and `<Counter start={5} />` as `component.Call("main.Counter", { Counter(start: 5) })`.
+// Element, Fragment and Component make Nodes, a description; Mount makes
+// them real and keeps them so: a component renders again when its state
+// is set (useState) or its parent renders, and the new description is
+// applied to what is in the document -- elements kept and patched, keyed
+// rows moved, components keeping their hooks. What the markup wrote in
+// braces is live besides: it follows the signals it read (an @Observable
+// model's properties) by itself, without its component rendering again.
 package component
 
 import (
@@ -43,8 +45,8 @@ public final class Node: Renderable, ExpressibleByNilLiteral, ExpressibleByStrin
     public internal(set) var Children: [Node] = []
     /// A live region: the nodes it is, made again when what it read changes.
     var live: (() -> [Node])? = nil
-    /// A keyed component's lazy builder.
-    var makeKeyed: (() -> Node)? = nil
+    /// A component: its fiber, which renders it.
+    var fiber: ComponentFiber? = nil
 
     public init() {}
 
@@ -75,9 +77,10 @@ public final class Node: Renderable, ExpressibleByNilLiteral, ExpressibleByStrin
     }
 
     public func Nodes() -> [Node] {
+        if fiber != nil { return [self] }
         // A fragment is its children, unless it carries a sheet (Styled) or
-        // a keyed component builder, which the mount has to see.
-        if Tag.isEmpty && !isText && live == nil && sheet == nil && makeKeyed == nil && key.isEmpty { return Children }
+        // a key, which the mount has to see.
+        if Tag.isEmpty && !isText && live == nil && sheet == nil && key.isEmpty { return Children }
         return [self]
     }
 
@@ -85,7 +88,7 @@ public final class Node: Renderable, ExpressibleByNilLiteral, ExpressibleByStrin
     /// or an email.
     public func Html() -> string {
         if isText { return escapeText(Text) }
-        if let mk = makeKeyed { return mk().Html() }
+        if let fib = fiber { return fib.render().Html() }
         if let f = live { return state.Untracked { f() }.map { $0.Html() }.joined() }
         if Tag.isEmpty { return Children.map { $0.Html() }.joined() }
         var s = "<" + Tag
@@ -164,17 +167,15 @@ extension Optional: Renderable where Wrapped: Renderable {
     }
 }
 
-/// What `ref={$el}` fills: the element, while it is in the document.
-///
-///     @state.State var field: Ref = nil
-///     <input ref={$field} />
-///
-/// (A .vsx file need not import web/html for it, whose Node would be
-/// taken for a component's Node.)
-public typealias Ref = html.Node?
+/// DOM element type aliases for .vsx v2 markup.
+public typealias HTMLElement = html.Node
+public typealias HTMLInputElement = html.Node
+public typealias HTMLButtonElement = html.Node
+public typealias HTMLDivElement = html.Node
+public typealias HTMLSpanElement = html.Node
+public typealias HTMLFormElement = html.Node
 
-/// A component's children: made when the component asks, inside it, as
-/// one fragment.
+/// A component's children: either passed as a Node or as a closure.
 public typealias Children = () -> Node
 
 // MARK: - Typed CSS Style
@@ -411,24 +412,44 @@ func liveNode(_ f: () -> [Node]) -> Node {
     return n
 }
 
-/// A component's call, `<Card …/>`: run once, untracked, so a change to
-/// what its body read does not run it again -- its own live parts follow
-/// what they read.
-public func Component<T>(_ f: () -> T) -> T {
-    return state.Untracked(f)
-}
-
-/// A keyed component's call, `<TabItem key={t.ID} …/>`: built once per
-/// key in a live list and kept while its key remains.
-public func Key<K>(_ key: K, _ f: () -> Node) -> Node {
-    return keyedNode("\(key)", f)
-}
-
-func keyedNode(_ key: string, _ f: () -> Node) -> Node {
+/// A component's call, `<Counter start={5} />`, lowered as
+/// `component.Call("main.Counter", { Counter(start: 5) })`: rendered by a
+/// fiber the mount keeps while the same component stays in its place,
+/// inside the context values given where the call was written. type is
+/// the component's identity: another component in that place next time
+/// is a new one there.
+public func Call(_ type: string, _ f: @escaping () -> Node) -> Node {
     let n = Node()
-    n.key = key
-    n.makeKeyed = capturedNode({ state.Untracked(f) })
+    n.fiber = ComponentFiber(type, capturedNode(f))
     return n
+}
+
+/// A keyed component's call, `<TabItem key={t.ID} … />`: among its
+/// siblings, its fiber (its state, its elements) goes with its key.
+public func Key<K>(_ key: K, _ type: string, _ f: @escaping () -> Node) -> Node {
+    let n = Call(type, f)
+    n.key = "\(key)"
+    return n
+}
+
+/// `<Comp ref={el} />`: a ref on a component holds the first element it
+/// renders while it is in the document.
+public func ForwardRef<T>(_ ref: Ref<T>, _ node: Node) -> Node {
+    node.refs.append({ n in ref.current = n as? T })
+    return node
+}
+
+/// `<Comp ref={setEl} />`: a setter given the component's first element.
+public func ForwardRef<T>(_ setter: SetState<T?>, _ node: Node) -> Node {
+    node.refs.append({ n in setter(n as? T) })
+    return node
+}
+
+/// `<Comp ref={el in …} />`: called with the component's first element
+/// once it is in the document, and with nil when it goes.
+public func ForwardRef(_ callback: @escaping (HTMLElement?) -> void, _ node: Node) -> Node {
+    node.refs.append(callback)
+    return node
 }
 
 // MARK: - Attributes
@@ -440,12 +461,10 @@ public enum AttributeKind {
     case key(string)
     case handler(string, (dom.Event) -> void)
     case liveText(string, () -> string?)
-    /// An attribute bound both ways: its live value, and the event and
-    /// handler that write what the user did back.
-    case bound(string, () -> string?, string, (dom.Event) -> void)
     case spread([string: string])
     case sheet(Sheet)
-    /// `ref={$el}`: given the element when it is made, and nil when it goes.
+    /// `ref={…}`: given the element when it is in the document, and nil
+    /// when it goes.
     case ref((html.Node?) -> void)
     case none
 }
@@ -462,21 +481,17 @@ public struct Attribute {
     }
 
     /// `name={value}`, taken once: a Bool is the attribute's presence,
-    /// anything else its text; a signal is bound both ways.
+    /// anything else its text.
     public static func Value<V>(_ name: string, _ value: V) -> Attribute {
-        // vsc does not yet prefer non-generic overloads, so a signal is
-        // found here.
-        if let bound = bound(name, value) { return bound }
         if let b = value as? bool { return Attribute(.flag(name, b)) }
         if let text = attributeText(value) { return Attribute(.text(name, text)) }
         return Attribute(.none)
     }
 
-    /// `name={expr}`, live: the attribute follows expr. `value={$draft}`
-    /// is bound both ways.
+    /// `name={expr}`, live: the attribute follows the signals expr reads.
+    /// A field is controlled by its handler: `value={draft}
+    /// onInput={e in setDraft(e.Value)}`.
     public static func Live<V>(_ name: string, _ f: () -> V) -> Attribute {
-        let first = state.Untracked(f)
-        if let b = bound(name, first) { return b }
         return Attribute(.liveText(name, { attributeText(f()) }))
     }
 
@@ -492,16 +507,26 @@ public struct Attribute {
         return Attribute(.key("\(key)"))
     }
 
-    /// `ref={$el}`: el, an `html.Node?` state, is the element while it
-    /// is in the document, and nil once it is gone.
-    public static func Ref<V>(_ ref: V) -> Attribute {
-        if let s = ref as? state.Signal<html.Node?> {
-            return Attribute(.ref({ n in
-                var w = s
-                w.Value = n
-            }))
-        }
-        return Attribute(.none)
+    /// `ref={el}`: el, a `Ref<HTMLElement>` from useRef, holds the element
+    /// while it is in the document.
+    public static func Ref<T>(_ ref: Ref<T>) -> Attribute {
+        return Attribute(.ref({ n in
+            ref.current = n as? T
+        }))
+    }
+
+    /// `ref={setEl}`: a state setter is given the element once it is in
+    /// the document, and nil when it goes.
+    public static func Ref<T>(_ setter: SetState<T?>) -> Attribute {
+        return Attribute(.ref({ n in
+            setter(n as? T)
+        }))
+    }
+
+    /// `ref={el in …}`: called with the element once it is in the
+    /// document, and with nil when it goes.
+    public static func Ref(_ callback: @escaping (HTMLElement?) -> void) -> Attribute {
+        return Attribute(.ref(callback))
     }
 
     /// `{...attrs}`.
@@ -536,58 +561,6 @@ func attributeText<V>(_ v: V) -> string? {
     return "\(v)"
 }
 
-/// A signal given to an attribute, bound both ways: text, a number (what
-/// the user types is parsed back; what does not parse is left), or a
-/// Boolean. Generic, so the casts are made where the signal's type is.
-func bound<V>(_ name: string, _ value: V) -> Attribute? {
-    if let s = value as? state.Signal<string> { return bindText(name, s) }
-    if let s = value as? state.Signal<bool> { return bindFlag(name, s) }
-    if let s = value as? state.Signal<int> {
-        return bindParsed(name, { "\(s.Value)" }, { text in
-            if let n = int(text) {
-                var w = s
-                w.Value = n
-            }
-        })
-    }
-    if let s = value as? state.Signal<float64> {
-        return bindParsed(name, { "\(s.Value)" }, { text in
-            if let x = float64(text) {
-                var w = s
-                w.Value = x
-            }
-        })
-    }
-    return nil
-}
-
-/// An attribute following read, whose input events hand what was typed to
-/// write.
-func bindParsed(_ name: string, _ read: () -> string, _ write: (string) -> void) -> Attribute {
-    return Attribute(.bound(name, { read() }, "input", { e in
-        if let i = e as? dom.InputEvent { write(i.Value) }
-    }))
-}
-
-func bindText(_ name: string, _ signal: state.Signal<string>) -> Attribute {
-    let s = signal
-    return Attribute(.bound(name, { s.Value }, "input", { e in
-        if let i = e as? dom.InputEvent {
-            var w = s
-            w.Value = i.Value
-        }
-    }))
-}
-
-func bindFlag(_ name: string, _ signal: state.Signal<bool>) -> Attribute {
-    let s = signal
-    return Attribute(.bound(name, { s.Value ? "" : nil }, "change", { e in
-        // The page has toggled the box; the signal follows it.
-        var w = s
-        w.Value = !w.Peek()
-    }))
-}
-
 /// An HTML element.
 public func Element(_ tag: string, _ attributes: [Attribute], _ children: [any Renderable]) -> Node {
     let n = Node()
@@ -610,9 +583,6 @@ public func Element(_ tag: string, _ attributes: [Attribute], _ children: [any R
             n.handlers.append((event, h))
         case .liveText(let name, let f):
             n.liveAttrs.append((name, f))
-        case .bound(let name, let f, let event, let h):
-            n.liveAttrs.append((name, f))
-            n.handlers.append((event, h))
         case .spread(let attrs):
             for k in attrs.keys.sorted() {
                 let v = attrs[k]!
@@ -707,7 +677,7 @@ func voidElement(_ tag: string) -> bool {
 // MARK: - Styles
 
 /// A package's compiled stylesheet: its .vss files as one sheet, in its
-/// own cascade layer and scoped to its elements (proposed_vsx.md). The
+/// own cascade layer and scoped to its elements (docs/vss.md in vsc). The
 /// compiler generates one for each package with .vss files, as
 /// `__vssSheet`, after the sheets of the styled packages it imports.
 public final class Sheet {

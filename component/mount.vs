@@ -7,23 +7,83 @@ import (
     "web/html"
 )
 
-/// A root put into a document: its nodes are made once, as the children
-/// of the element it was mounted at, and each live part keeps itself up
-/// to date -- a live text its text, a live attribute its value, a live
-/// region its nodes, a keyed list its rows -- until the root is unmounted.
+// The reconciler. What a Node became in a document is an Inst, kept so the
+// next description of the same place is applied to it rather than made
+// again: an element keeps its element and has its attributes, handlers and
+// children patched; a component keeps its fiber (its hooks) and renders
+// again; a live region runs its new expression. Siblings are matched by
+// key where they have one, by place among the unkeyed where they don't,
+// and an Inst is reused only for a Node of its kind (and an element only
+// for its tag): anything else is made anew, and what it replaces ends.
+
+enum InstKind {
+    case text
+    case element
+    case fragment
+    case fiber
+    case region
+}
+
+func kindOf(_ n: Node) -> InstKind {
+    if n.isText { return .text }
+    if n.fiber != nil { return .fiber }
+    if n.live != nil { return .region }
+    if !n.Tag.isEmpty { return .element }
+    return .fragment
+}
+
+/// One made node: a text, an element, or a range (a fragment, a
+/// component, a live region) between two empty texts.
+final class Inst {
+    let kind: InstKind
+    let key: string
+    /// A text's or an element's node.
+    var dom: html.Node? = nil
+    /// Around a range's nodes.
+    var start: html.Node? = nil
+    var end: html.Node? = nil
+    var children: [Inst] = []
+    // An element's tag, the attributes the reconciler set, its handlers
+    // (one listener per event, calling the handlers now), its refs, and
+    // its live attributes' bindings.
+    var tag = ""
+    var setAttrs: [string] = []
+    var handlers: [(string, (dom.Event) -> void)] = []
+    var listening: [string] = []
+    var refs: [(html.Node?) -> void] = []
+    let attrBindings = state.Owner()
+    /// A component's fiber.
+    var fiber: ComponentFiber? = nil
+    /// A live region's expression, and the binding that runs it.
+    var live: (() -> [Node])? = nil
+    let binding = state.Owner()
+
+    init(kind: InstKind, key: string) {
+        self.kind = kind
+        self.key = key
+    }
+
+    var first: html.Node? { return dom ?? start }
+    var last: html.Node? { return dom ?? end }
+}
+
+/// A root put into a document: its nodes are made as the children of the
+/// element it was mounted at, and kept up to date -- a component when its
+/// state is set, a live part when what it read changes -- until the root
+/// is unmounted.
 public final class Mounted {
     let doc: dom.Document
     let parent: html.Node
     let styles: (([string]) -> void)?
     let focus: ((html.Node?) -> void)?
     let measure: ((html.Node) -> draw.Rect?)?
-    /// What the root made: every binding, and every keyed list's rows.
-    let owner = state.Owner()
+    var roots: [Inst] = []
     var used: [Sheet] = []
     var given: [string] = []
     /// How many times the root has run: once.
     public internal(set) var Renders = 0
-    /// How many times a live part has run, the first time included.
+    /// How many times a live part or a component has run, the first time
+    /// included.
     public internal(set) var Updates = 0
 
     init(doc: dom.Document, parent: html.Node, styles: (([string]) -> void)?, focus: ((html.Node?) -> void)?, measure: ((html.Node) -> draw.Rect?)?) {
@@ -34,130 +94,305 @@ public final class Mounted {
         self.measure = measure
     }
 
-    /// Disposes every binding, and takes the root's nodes out of the
-    /// document.
+    /// Ends every component and binding, and takes the root's nodes out of
+    /// the document.
     public func Unmount() {
-        owner.Dispose()
-        for c in parent.Children { remove(c) }
+        for r in roots { unmount(r, detach: true) }
+        roots = []
     }
 
-    // MARK: - Making nodes real
+    // MARK: - Reconciling
 
-    func build(_ n: Node, into parent: html.Node, before: html.Node?) {
+    /// What next becomes among old, in parent before end (nil: at its
+    /// end): old reused where it matches, made where nothing does, the rest
+    /// ended; then put in next's order.
+    func reconcile(_ old: [Inst], _ next: [Node], in parent: html.Node, end: html.Node?) -> [Inst] {
         buildDepth += 1
-        defer { buildDepth -= 1 }
-        if n.isText {
-            doc.InsertBefore(parent, doc.CreateTextNode(n.Text), before)
-            return
-        }
-        if let mk = n.makeKeyed {
-            if let s = n.sheet { note(s) }
-            for c in mk().Nodes() { build(c, into: parent, before: before) }
-            return
-        }
-        if let f = n.live {
-            region(f, into: parent, before: before)
-            return
-        }
-        if n.Tag.isEmpty {
-            if let s = n.sheet { note(s) }
-            for c in n.Children { build(c, into: parent, before: before) }
-            return
-        }
-        let el = doc.CreateElement(n.Tag)
-        populateElement(n, el, into: parent, before: before)
-    }
-
-    func populateElement(_ n: Node, _ el: html.Node, into parent: html.Node, before: html.Node?) {
-        if let s = n.sheet { note(s) }
-        for (name, value) in n.attrs { doc.SetAttribute(el, name, value) }
-        if let c = n.classNow() { doc.SetAttribute(el, "class", c) }
-        if let st = n.styleNow() { doc.SetAttribute(el, "style", st) }
-        for (name, f) in n.liveAttrs {
-            bind { self.set(el, name, f()) }
-        }
-        for (event, h) in n.handlers {
-            _ = doc.AddEventListener(el, event, { e in self.hosting { h(e) } })
-        }
-        for c in n.Children { build(c, into: el, before: nil) }
-        doc.InsertBefore(parent, el, before)
-        for give in n.refs {
-            give(el)
-            state.OnCleanup { give(nil) }
-        }
-        for (name, _) in n.attrs where name == "autofocus" {
-            let me = self
-            toMount.append({ me.focus?(el) })
-            break
-        }
-    }
-
-    func patchElement(_ n: Node, _ el: html.Node, owner: state.Owner) {
-        buildDepth += 1
-        defer { buildDepth -= 1 }
-        owner.Dispose()
-        doc.RemoveEventListeners(within: el)
-        state.WithOwner(owner) {
-            self.patchElementInOwner(n, el)
-        }
-    }
-
-    func patchElementInOwner(_ n: Node, _ el: html.Node) {
-        if let s = n.sheet { self.note(s) }
-        var oldAttrs: [string] = []
-        for a in el.Attributes { oldAttrs.append(a.Name) }
-        for name in oldAttrs { self.doc.RemoveAttribute(el, name) }
-        for (name, value) in n.attrs { self.doc.SetAttribute(el, name, value) }
-        if let c = n.classNow() { self.doc.SetAttribute(el, "class", c) }
-        if let st = n.styleNow() { self.doc.SetAttribute(el, "style", st) }
-        for (name, f) in n.liveAttrs {
-            self.bind { self.set(el, name, f()) }
-        }
-        for (event, h) in n.handlers {
-            _ = self.doc.AddEventListener(el, event, { e in self.hosting { h(e) } })
-        }
-        if self.canPatchChildrenInPlace(n.Children, el.Children) {
-            var i = 0
-            while i < n.Children.count {
-                let nc = n.Children[i]
-                let oc = el.Children[i]
-                if nc.isText {
-                    if oc.Text != nc.Text { self.doc.SetText(oc, nc.Text) }
-                } else {
-                    self.patchElementInOwner(nc, oc)
-                }
-                i += 1
-            }
-        } else {
-            for c in el.Children { self.remove(c) }
-            for c in n.Children { self.build(c, into: el, before: nil) }
-        }
-        for give in n.refs {
-            give(el)
-            state.OnCleanup { give(nil) }
-        }
-    }
-
-    func canPatchChildrenInPlace(_ next: [Node], _ curr: [html.Node]) -> bool {
-        if next.count != curr.count { return false }
+        var taken = [bool](repeating: false, count: old.count)
+        var match: [int] = []
+        var unkeyed: [int] = []
         var i = 0
-        while i < next.count {
-            let nc = next[i]
-            let oc = curr[i]
-            if nc.live != nil || nc.makeKeyed != nil {
-                return false
+        while i < old.count {
+            if old[i].key.isEmpty { unkeyed.append(i) }
+            i += 1
+        }
+        var u = 0
+        for n in next {
+            var found = -1
+            if !n.key.isEmpty {
+                var j = 0
+                while j < old.count {
+                    if !taken[j] && old[j].key == n.key && compatible(old[j], n) {
+                        found = j
+                        break
+                    }
+                    j += 1
+                }
+            } else if u < unkeyed.count {
+                let j = unkeyed[u]
+                u += 1
+                if !taken[j] && compatible(old[j], n) { found = j }
             }
-            if nc.isText {
-                if oc.Kind != html.NodeKind.text { return false }
-            } else if nc.Tag.isEmpty {
-                return false
+            if found >= 0 { taken[found] = true }
+            match.append(found)
+        }
+        i = 0
+        while i < old.count {
+            if !taken[i] { unmount(old[i], detach: true) }
+            i += 1
+        }
+        var out: [Inst] = []
+        i = 0
+        while i < next.count {
+            if match[i] >= 0 {
+                let inst = old[match[i]]
+                patch(inst, next[i])
+                out.append(inst)
             } else {
-                if oc.Kind != html.NodeKind.element || oc.TagName != nc.Tag { return false }
+                out.append(make(next[i], into: parent, before: end))
             }
             i += 1
         }
+        // From the last, each just before what follows it: what is in its
+        // place already is not moved.
+        var ref = end
+        var k = out.count - 1
+        while k >= 0 {
+            let inst = out[k]
+            if let l = inst.last, !sameNode(l.NextSibling(), ref) { move(inst, in: parent, before: ref) }
+            ref = inst.first
+            k -= 1
+        }
+        buildDepth -= 1
+        return out
+    }
+
+    func compatible(_ inst: Inst, _ n: Node) -> bool {
+        if inst.kind != kindOf(n) { return false }
+        if inst.kind == .element { return inst.tag == n.Tag }
+        if inst.kind == .fiber, let a = inst.fiber, let b = n.fiber { return a.type == b.type }
         return true
     }
+
+    func move(_ inst: Inst, in parent: html.Node, before: html.Node?) {
+        if let d = inst.dom {
+            doc.InsertBefore(parent, d, before)
+            return
+        }
+        guard let s = inst.start, let e = inst.end else { return }
+        for c in [s] + between(s, e) + [e] { doc.InsertBefore(parent, c, before) }
+    }
+
+    // MARK: - Making
+
+    func make(_ n: Node, into parent: html.Node, before: html.Node?) -> Inst {
+        if let s = n.sheet { note(s) }
+        let inst = Inst(kind: kindOf(n), key: n.key)
+        switch inst.kind {
+        case .text:
+            let t = doc.CreateTextNode(n.Text)
+            inst.dom = t
+            doc.InsertBefore(parent, t, before)
+        case .element:
+            let el = doc.CreateElement(n.Tag)
+            inst.dom = el
+            inst.tag = n.Tag
+            applyAttributes(inst, n, el)
+            listen(inst, n, el)
+            inst.children = reconcile([], n.Children, in: el, end: nil)
+            doc.InsertBefore(parent, el, before)
+            inst.refs = n.refs
+            for give in n.refs {
+                let g = give
+                toMount.append({ g(el) })
+            }
+            for (name, _) in n.attrs where name == "autofocus" {
+                let me = self
+                toMount.append({ me.focus?(el) })
+                break
+            }
+        case .fragment:
+            markers(inst, parent, before)
+            inst.children = reconcile([], n.Children, in: parent, end: inst.end)
+        case .fiber:
+            markers(inst, parent, before)
+            let fiber = n.fiber!
+            inst.fiber = fiber
+            state.WithOwner(fiber.owner) {
+                _ = state.Effect {
+                    _ = fiber.trigger.Value
+                    state.Untracked { self.renderFiber(inst) }
+                }
+            }
+            // A ref on a component: its first element.
+            inst.refs = n.refs
+            for give in n.refs {
+                let g = give
+                toMount.append({ g(firstElement(inst)) })
+            }
+        case .region:
+            markers(inst, parent, before)
+            inst.live = n.live
+            bindRegion(inst)
+        }
+        return inst
+    }
+
+    func markers(_ inst: Inst, _ parent: html.Node, _ before: html.Node?) {
+        let s = doc.CreateTextNode("")
+        let e = doc.CreateTextNode("")
+        doc.InsertBefore(parent, s, before)
+        doc.InsertBefore(parent, e, before)
+        inst.start = s
+        inst.end = e
+    }
+
+    // MARK: - Patching
+
+    /// Applies n to inst, which it is compatible with.
+    func patch(_ inst: Inst, _ n: Node) {
+        if let s = n.sheet { note(s) }
+        switch inst.kind {
+        case .text:
+            if let t = inst.dom, t.Text != n.Text { doc.SetText(t, n.Text) }
+        case .element:
+            let el = inst.dom!
+            applyAttributes(inst, n, el)
+            listen(inst, n, el)
+            inst.refs = n.refs
+            inst.children = reconcile(inst.children, n.Children, in: el, end: nil)
+        case .fragment:
+            if let e = inst.end, let p = e.Parent {
+                inst.children = reconcile(inst.children, n.Children, in: p, end: e)
+            }
+        case .fiber:
+            // The fiber stays, with its hooks; it renders the new props.
+            if let f = inst.fiber, let nf = n.fiber { f.renderFn = nf.renderFn }
+            inst.refs = n.refs
+            renderFiber(inst)
+        case .region:
+            inst.live = n.live
+            bindRegion(inst)
+        }
+    }
+
+    /// An element's attributes as n gives them: the static ones set, the
+    /// ones the last description set and this one does not removed, and
+    /// the live ones bound again.
+    func applyAttributes(_ inst: Inst, _ n: Node, _ el: html.Node) {
+        var hasLiveClass = false
+        var hasLiveStyle = false
+        var names: [string] = []
+        for (name, _) in n.liveAttrs {
+            if name == "class" { hasLiveClass = true }
+            if name == "style" { hasLiveStyle = true }
+            names.append(name)
+        }
+        var fixed = n.attrs
+        if !hasLiveClass, let c = n.classNow() { fixed.append(("class", c)) }
+        if !hasLiveStyle, let st = n.styleNow() { fixed.append(("style", st)) }
+        for (name, _) in fixed { names.append(name) }
+        for old in inst.setAttrs where !names.contains(old) { doc.RemoveAttribute(el, old) }
+        inst.setAttrs = names
+        for (name, value) in fixed { doc.SetAttribute(el, name, value) }
+        inst.attrBindings.Dispose()
+        state.WithOwner(inst.attrBindings) {
+            for (name, f) in n.liveAttrs {
+                let nm = name
+                let g = f
+                self.bind { self.set(el, nm, g()) }
+            }
+        }
+    }
+
+    /// The element's handlers as n gives them: one listener per event,
+    /// added once, calling whichever handlers the last description gave.
+    func listen(_ inst: Inst, _ n: Node, _ el: html.Node) {
+        inst.handlers = n.handlers
+        for (event, _) in n.handlers where !inst.listening.contains(event) {
+            inst.listening.append(event)
+            let ev = event
+            _ = doc.AddEventListener(el, ev, { e in
+                self.hosting {
+                    for (name, h) in inst.handlers where name == ev { h(e) }
+                }
+            })
+        }
+    }
+
+    /// Renders a component and applies what it gives to its range; its
+    /// effects wait for the nodes to be in the document.
+    func renderFiber(_ inst: Inst) {
+        guard let fiber = inst.fiber, !fiber.unmounted, let e = inst.end, let p = e.Parent else { return }
+        Updates += 1
+        let nodes = fiber.render().Nodes()
+        inst.children = reconcile(inst.children, nodes, in: p, end: e)
+        queueEffects(fiber)
+        giveSheets()
+        hosting { runMounted() }
+    }
+
+    /// A live region's binding, made again for its expression: it runs it,
+    /// and again when a signal it read changes, and applies the nodes it
+    /// gives to its range.
+    func bindRegion(_ inst: Inst) {
+        inst.binding.Dispose()
+        guard let f = inst.live else { return }
+        state.WithOwner(inst.binding) {
+            _ = state.Effect {
+                self.Updates += 1
+                let nodes = f()
+                state.Untracked {
+                    guard let e = inst.end, let p = e.Parent else { return }
+                    inst.children = self.reconcile(inst.children, nodes, in: p, end: e)
+                    self.giveSheets()
+                    self.hosting { runMounted() }
+                }
+            }
+        }
+    }
+
+    /// A fiber's effects from the render just made, run once its nodes
+    /// are in the document and its refs are given: after the outermost
+    /// build ends, a child's before its parent's.
+    func queueEffects(_ fiber: ComponentFiber) {
+        let effs = fiber.effects
+        fiber.effects = []
+        if effs.isEmpty { return }
+        let me = self
+        toEffect.append({
+            if fiber.unmounted { return }
+            me.hosting {
+                for eff in effs { eff() }
+            }
+        })
+    }
+
+    // MARK: - Ending
+
+    /// Ends what inst made: its bindings, its component, its refs; and,
+    /// where detach, takes its nodes out (an element's children go with
+    /// it).
+    func unmount(_ inst: Inst, detach: bool) {
+        let ranged = inst.dom == nil
+        for c in inst.children { unmount(c, detach: ranged && detach) }
+        inst.children = []
+        inst.attrBindings.Dispose()
+        inst.binding.Dispose()
+        if let f = inst.fiber { f.dispose() }
+        for g in inst.refs { g(nil) }
+        inst.refs = []
+        if let d = inst.dom {
+            doc.RemoveEventListeners(within: d)
+            if detach, let p = d.Parent { doc.RemoveChild(p, d) }
+        }
+        if detach {
+            if let s = inst.start, let p = s.Parent { doc.RemoveChild(p, s) }
+            if let e = inst.end, let p = e.Parent { doc.RemoveChild(p, e) }
+        }
+    }
+
+    // MARK: - Helpers
 
     /// Runs body as this root's code: what it calls Focus on is focused
     /// in this root's page.
@@ -184,129 +419,15 @@ public final class Mounted {
         }
     }
 
-    /// A live region: its nodes between two markers, made again -- and
-    /// what they made disposed -- when what it read changes. Text that
-    /// stays text is changed in place; keyed elements (`key={...}`) are
-    /// reconciled by key.
-    func region(_ f: () -> [Node], into parent: html.Node, before: html.Node?) {
-        let start = doc.CreateTextNode("")
-        let end = doc.CreateTextNode("")
-        doc.InsertBefore(parent, start, before)
-        doc.InsertBefore(parent, end, before)
-        let rows = RowTable()
-        state.OnCleanup {
-            for r in rows.rows { r.owner.Dispose() }
-        }
-        bind {
-            let nodes = f()
-            state.Untracked {
-                guard let p = end.Parent else { return }
-                let hasKeys = !nodes.isEmpty && nodes.allSatisfy { !$0.key.isEmpty }
-                if hasKeys || (!rows.rows.isEmpty && nodes.isEmpty) {
-                    self.reconcileKeyed(nodes, rows: rows, in: p, start: start, end: end)
-                    return
-                }
-                for r in rows.rows { r.owner.Dispose() }
-                rows.rows = []
-                let current = self.between(start, end)
-                if nodes.count == 1 && nodes[0].isText && current.count == 1 && current[0].Kind == html.NodeKind.text {
-                    if current[0].Text != nodes[0].Text { self.doc.SetText(current[0], nodes[0].Text) }
-                    return
-                }
-                for c in current { self.remove(c) }
-                for n in nodes { self.build(n, into: p, before: end) }
-                self.giveSheets()
-                self.hosting { runMounted() }
-            }
-        }
-    }
-
-    func reconcileKeyed(_ nodes: [Node], rows: RowTable, in p: html.Node, start: html.Node, end: html.Node) {
-        var keys: [string] = []
-        for n in nodes { keys.append(n.key) }
-        var kept: [Row] = []
-        for r in rows.rows {
-            if keys.contains(r.key) {
-                kept.append(r)
-            } else {
-                r.owner.Dispose()
-                for c in self.between(r.start, r.end) { self.remove(c) }
-                self.remove(r.start)
-                self.remove(r.end)
-            }
-        }
-        var next: [Row] = []
-        var cursor: html.Node = self.after(start) ?? end
-        var i = 0
-        while i < nodes.count {
-            let n = nodes[i]
-            let k = n.key
-            var row: Row? = nil
-            for r in kept where r.key == k { row = r }
-            if let r = row {
-                if r.start !== cursor {
-                    for c in [r.start] + self.between(r.start, r.end) + [r.end] {
-                        self.doc.InsertBefore(p, c, cursor)
-                    }
-                } else {
-                    cursor = self.after(r.end) ?? end
-                }
-                if n.makeKeyed == nil, let el = r.el, el.TagName == n.Tag {
-                    self.patchElement(n, el, owner: r.owner)
-                }
-                next.append(r)
-            } else {
-                let r = Row(key: k, start: self.doc.CreateTextNode(""), end: self.doc.CreateTextNode(""))
-                self.doc.InsertBefore(p, r.start, cursor)
-                self.doc.InsertBefore(p, r.end, cursor)
-                state.WithOwner(r.owner) {
-                    if let mk = n.makeKeyed {
-                        if let s = n.sheet { self.note(s) }
-                        let built = mk()
-                        for c in built.Nodes() { self.build(c, into: p, before: r.end) }
-                    } else if !n.Tag.isEmpty {
-                        let el = self.doc.CreateElement(n.Tag)
-                        r.el = el
-                        self.populateElement(n, el, into: p, before: r.end)
-                    } else {
-                        self.build(n, into: p, before: r.end)
-                    }
-                }
-                next.append(r)
-            }
-            i += 1
-        }
-        rows.rows = next
-        self.giveSheets()
-        self.hosting { runMounted() }
-    }
-
     /// The nodes strictly between two markers.
     func between(_ start: html.Node, _ end: html.Node) -> [html.Node] {
-        guard let p = start.Parent else { return [] }
         var out: [html.Node] = []
-        var inside = false
-        for c in p.Children {
-            if c === end { break }
-            if inside { out.append(c) }
-            if c === start { inside = true }
+        var c = start.NextSibling()
+        while let n = c, n !== end {
+            out.append(n)
+            c = n.NextSibling()
         }
         return out
-    }
-
-    func after(_ n: html.Node) -> html.Node? {
-        guard let p = n.Parent else { return nil }
-        var seen = false
-        for c in p.Children {
-            if seen { return c }
-            if c === n { seen = true }
-        }
-        return nil
-    }
-
-    func remove(_ n: html.Node) {
-        doc.RemoveEventListeners(within: n)
-        if let p = n.Parent { doc.RemoveChild(p, n) }
     }
 
     // MARK: - Styles
@@ -327,31 +448,25 @@ public final class Mounted {
     }
 }
 
-/// One row of a keyed list: its key, the markers around its nodes, and
-/// the owner of what making it made.
-final class Row {
-    let key: string
-    let start: html.Node
-    let end: html.Node
-    var el: html.Node? = nil
-    let owner = state.Owner()
-
-    init(key: string, start: html.Node, end: html.Node) {
-        self.key = key
-        self.start = start
-        self.end = end
+/// The first element an Inst made: itself, or the first inside its range.
+func firstElement(_ inst: Inst) -> html.Node? {
+    if let d = inst.dom { return d.Kind == html.NodeKind.element ? d : nil }
+    for c in inst.children {
+        if let e = firstElement(c) { return e }
     }
+    return nil
 }
 
-final class RowTable {
-    var rows: [Row] = []
-    init() {}
+func sameNode(_ a: html.Node?, _ b: html.Node?) -> bool {
+    if let x = a, let y = b { return x === y }
+    return a == nil && b == nil
 }
 
 /// Puts what root makes into a document, as the children of parent. The
-/// root runs once; its live parts keep themselves up to date. styles is
-/// given the stylesheets the nodes' packages carry, in cascade order,
-/// whenever they change: a page sets them (web.Page.SetStyleSheets).
+/// root runs once; its components and live parts keep themselves up to
+/// date. styles is given the stylesheets the nodes' packages carry, in
+/// cascade order, whenever they change: a page sets them
+/// (web.Page.SetStyleSheets).
 ///
 /// focus, where given, is how Focus moves the page's focus
 /// (web.Page.Focus); measure, how Bounds finds where an element is
@@ -361,68 +476,54 @@ public func Mount(_ root: () -> Node, into doc: dom.Document, at parent: html.No
     let m = Mounted(doc: doc, parent: parent, styles: styles, focus: focus, measure: measure)
     lastMounted = m
     m.hosting {
-        state.WithOwner(m.owner) {
-            m.Renders += 1
-            let nodes = state.Untracked { root().Nodes() }
-            for n in nodes { m.build(n, into: parent, before: nil) }
-        }
+        m.Renders += 1
+        let nodes = state.Untracked { root().Nodes() }
+        m.roots = m.reconcile([], nodes, in: parent, end: nil)
         m.giveSheets()
         runMounted()
     }
     return m
 }
 
-// MARK: - Mounting
+// MARK: - Committing
 
 /// The root whose code is running: being built, or handling an event.
 var host: Mounted? = nil
 /// The root mounted last, for Focus from code no root is running (a
 /// task, a timer).
 weak var lastMounted: Mounted? = nil
-/// OnMount's work, waiting for the nodes to be in the document.
+/// What waits for the nodes to be in the document: refs, autofocus.
 var toMount: [() -> void] = []
+/// Components' effects, waiting for toMount: an effect sees its refs.
+var toEffect: [() -> void] = []
 
-/// Runs f once the nodes the component running now makes are in the
-/// document -- to focus a field, measure a box, start a timer. What f
-/// makes, and OnCleanup inside it, belong to the component: they end
-/// when it is gone.
-///
-///     @state.State var field: html.Node? = nil
-///     OnMount { component.Focus(field) }
-///     return <input ref={$field} />
-public func OnMount(_ f: () -> void) {
-    let owner = state.CurrentOwner()
-    let at = frames
-    toMount.append({
-        let prev = frames
-        frames = at
-        if let o = owner {
-            state.WithOwner(o) { state.Untracked { f() } }
-        } else {
-            state.Untracked { f() }
-        }
-        frames = prev
-    })
-}
-
-/// How deep the build in progress is. OnMount's work waits for the
-/// outermost to end: a live region inside an element is built before
-/// the element is in the document and its refs are given.
+/// How deep the build in progress is. What waits for the nodes to be in
+/// the document waits for the outermost to end: a live region inside an
+/// element is built before the element is in the document.
 var buildDepth = 0
 
 func runMounted() {
     if buildDepth > 0 { return }
-    while !toMount.isEmpty {
-        let f = toMount.removeFirst()
-        f()
+    while !toMount.isEmpty || !toEffect.isEmpty {
+        if !toMount.isEmpty {
+            let f = toMount.removeFirst()
+            f()
+        } else {
+            let f = toEffect.removeFirst()
+            f()
+        }
     }
 }
 
 /// Moves the page's focus to node -- a field a ref holds -- or, given
-/// nil, takes it away. Called from a component's code: OnMount, a
-/// handler, an effect; from a task, it is the last mounted root's page.
+/// nil, takes it away. Called from a component's code: an effect, a
+/// handler; from a task, it is the last mounted root's page.
 public func Focus(_ node: html.Node?) {
     if let h = host ?? lastMounted, let f = h.focus { f(node) }
+}
+
+public func Focus<T>(_ ref: Ref<T>) {
+    if let n = ref.current as? html.Node { Focus(n) }
 }
 
 /// Where an element a ref holds is in the page's view, as laid out now:
@@ -431,4 +532,9 @@ public func Focus(_ node: html.Node?) {
 public func Bounds(of node: html.Node?) -> draw.Rect? {
     guard let n = node, let h = host ?? lastMounted, let f = h.measure else { return nil }
     return f(n)
+}
+
+public func Bounds<T>(of ref: Ref<T>) -> draw.Rect? {
+    if let n = ref.current as? html.Node { return Bounds(of: n) }
+    return nil
 }

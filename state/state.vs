@@ -1,7 +1,7 @@
 // Package state is the signal graph: values that say when they change,
 // computations that follow them, and effects that run again when what
-// they read does -- the state a .vsx component keeps (`@state.State`),
-// and what follows it (proposed_vsx.md §5). It imports nothing: the rest
+// they read does: what an @Observable model is made of, and what markup
+// in braces follows (docs/vsx.md in vsc). It imports nothing: the rest
 // of ui is built on it, not the other way round, so a model, a cache or a
 // scene can use it without windows.
 //

@@ -9,34 +9,30 @@ package main
 
 import (
     "ui/app"
-    "ui/component"
-    "ui/state"
     "ui/viewport"
-    "web/dom"
 )
 
 func Demo() -> Element {
-    var hue = state.Signal(float32(0.6))
-    var live = state.Signal(true)
-    var handle: viewport.Handle? = nil
+    let hue = useRef<float32>(0.6)
+    let live = useRef<bool>(true)
+    let handleRef = useRef<viewport.Handle>(nil)
     var rows: [any component.Renderable] = []
     for i in 0..<40 {
         rows.append(
             <div className="row">
                 <span>Slider {i + 1}</span>
-                <input type="range" min="0" max="1" step="0.01" value={"\(hue.Value)"} onInput={e in
-                    hue.Value = float32(e.Value) ?? 0
-                    handle?.Invalidate()
+                <input type="range" min="0" max="1" step="0.01" value={"\(hue.current ?? 0.6)"} onInput={e in
+                    hue.current = float32(e.Value) ?? 0
+                    handleRef.current?.Invalidate()
                 } />
             </div>
         )
     }
     let paint: viewport.Draw = { w, h, t in
-        // A moving gradient: cheap, so the page and the plumbing are what
-        // a frame costs.
         var px = [uint8](repeating: 255, count: w * h * 4)
-        let shift = live.Peek() ? int(t * 60) : 0
-        let base = int(hue.Peek() * 255)
+        let isLive = live.current ?? true
+        let shift = isLive ? int(t * 60) : 0
+        let base = int((hue.current ?? 0.6) * 255)
         for y in 0..<h {
             let row = y * w * 4
             let g = uint8((y * 255 / max(1, h) + shift) & 255)
@@ -49,24 +45,24 @@ func Demo() -> Element {
                 x += 1
             }
         }
-        handle?.Live = live.Peek()
+        handleRef.current?.Live = isLive
         return px
     }
     return (
         <div className="app">
             <aside>
                 <button onClick={
-                    live.Value = !live.Value
-                    handle?.Invalidate()
-                }>{live.Value ? "Live: on" : "Live: off"}</button>
+                    live.current = !(live.current ?? true)
+                    handleRef.current?.Invalidate()
+                }>{(live.current ?? true) ? "Live: on" : "Live: off"}</button>
                 {component.Fragment(rows)}
             </aside>
             <main>
-                {viewport.Viewport(class: "view", live: true, handle: { h in handle = h }, paint)}
+                {viewport.Viewport(class: "view", live: true, handle: { h in handleRef.current = h }, paint)}
                 <div className="toolbar"><button onClick={
-                    live.Value = !live.Value
-                    handle?.Invalidate()
-                }>Over the view: {live.Value ? "pause" : "play"}</button></div>
+                    live.current = !(live.current ?? true)
+                    handleRef.current?.Invalidate()
+                }>Over the view: {(live.current ?? true) ? "pause" : "play"}</button></div>
             </main>
         </div>
     )

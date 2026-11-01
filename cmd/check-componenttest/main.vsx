@@ -1,14 +1,12 @@
-// ui/componenttest checked on a small task app, as proposed_vsx.md
-// writes a component's test.
+// ui/componenttest checked on a small task app, the way a component's
+// test is written.
 package main
 
 import (
     "image/draw"
     "ui/state"
-    "ui/component"
     "ui/componenttest"
     "time"
-    "web/dom"
 )
 
 var failures = 0
@@ -29,27 +27,27 @@ struct Todo {
 }
 
 func App() -> Element {
-    @state.State var todos: [Todo] = []
-    @state.State var draft = ""
-    @state.State var nextID = 1
+    let (todos, setTodos) = useState<[Todo]>([])
+    let (draft, setDraft) = useState("")
+    let (nextID, setNextID) = useState(1)
     return (
         <main>
             <h1>Tasks</h1>
             <form onSubmit={e in
                 e.PreventDefault()
                 if !draft.isEmpty {
-                    todos.append(Todo(ID: nextID, Title: draft, Done: false))
-                    nextID += 1
-                    draft = ""
+                    setTodos(todos + [Todo(ID: nextID, Title: draft, Done: false)])
+                    setNextID(nextID + 1)
+                    setDraft("")
                 }
             }>
-                <label>New task <input placeholder="What needs doing?" value={$draft} /></label>
+                <label>New task <input placeholder="What needs doing?" value={draft} onInput={e in setDraft(e.Value)} /></label>
             </form>
             <ul>
                 {todos.map { t in
                     <li key={t.ID} className={t.Done ? "done" : ""}>
                         <input type="checkbox" aria-label={"done: \(t.Title)"} checked={t.Done} onChange={
-                            for i in 0..<todos.count where todos[i].ID == t.ID { todos[i].Done = !todos[i].Done }
+                            setTodos(todos.map { it in it.ID == t.ID ? Todo(ID: it.ID, Title: it.Title, Done: !it.Done) : it })
                         } />
                         <span>{t.Title}</span>
                     </li>
@@ -61,27 +59,27 @@ func App() -> Element {
 }
 
 func Quantity() -> Element {
-    @state.State var qty = 2
-    @state.State var price = 1.5
+    let (qty, setQty) = useState(2)
+    let (price, setPrice) = useState(1.5)
     return (
         <div>
-            <input id="qty" value={$qty} />
-            <input id="price" value={$price} />
+            <input id="qty" value={"\(qty)"} onInput={e in if let n = int(e.Value) { setQty(n) } } />
+            <input id="price" value={"\(price)"} onInput={e in if let p = float64(e.Value) { setPrice(p) } } />
             <p data-testid="total">{float64(qty) * price}</p>
         </div>
     )
 }
 
 func Events() -> Element {
-    @state.State var log: [string] = []
+    let (log, setLog) = useState<[string]>([])
     return (
         <div>
-            <p id="card" onMouseEnter={log.append("enter")} onMouseLeave={log.append("leave")}
-               onDoubleClick={log.append("double")} onContextMenu={e in
+            <p id="card" onMouseEnter={setLog { prev in prev + ["enter"] }} onMouseLeave={setLog { prev in prev + ["leave"] }}
+               onDoubleClick={setLog { prev in prev + ["double"] }} onContextMenu={e in
                    e.PreventDefault()
-                   log.append("menu")
+                   setLog { prev in prev + ["menu"] }
                }>card</p>
-            <input id="name" onFocus={log.append("focus")} onBlur={log.append("blur")} />
+            <input id="name" onFocus={setLog { prev in prev + ["focus"] }} onBlur={setLog { prev in prev + ["blur"] }} />
             <button id="other">other</button>
             <p data-testid="log">{log.joined(separator: ",")}</p>
         </div>
@@ -103,7 +101,7 @@ func Badge() -> Element {
 }
 
 func Themed() -> Element {
-    @state.State var open = false
+    let (open, setOpen) = useState(false)
     return (
         <div>
             <Badge />
@@ -114,39 +112,43 @@ func Themed() -> Element {
                     {[1, 2].map { n in <Badge key={n} /> }}
                 </CurrentUser>
             </Theme>
-            <button onClick={open = true}>open</button>
+            <button onClick={setOpen(true)}>open</button>
         </div>
     )
 }
 
 func SignIn() -> Element {
-    @state.State var user: Ref = nil
-    @state.State var pass: Ref = nil
-    @state.State var log: [string] = []
-    component.OnMount {
-        log.append(user == nil ? "no ref" : "mounted")
-        component.Focus(user)
-        state.OnCleanup { log.append("cleaned") }
-    }
+    let user = useRef<HTMLElement>(nil)
+    let pass = useRef<HTMLElement>(nil)
+    let (log, setLog) = useState<[string]>([])
+    useEffect({
+        setLog(["mounted"])
+        Focus(user)
+        state.OnCleanup { setLog(["cleaned"]) }
+    }, [])
     return (
         <form>
-            <input id="user" ref={$user} />
-            <input id="pass" ref={$pass} type="password" />
-            <button type="button" onClick={component.Focus(pass)}>next</button>
+            <input id="user" ref={user} />
+            <input id="pass" ref={pass} type="password" />
+            <button type="button" onClick={Focus(pass)}>next</button>
             <p data-testid="log">{log.joined(separator: ",")}</p>
         </form>
     )
 }
 
 func Toggle() -> Element {
-    @state.State var shown = true
-    @state.State var el: Ref = nil
+    let (shown, setShown) = useState(true)
+    let el = useRef<HTMLElement>(nil)
+    let (ready, setReady) = useState(false)
+    useEffect({
+        setReady(el.current != nil)
+    }, [shown])
     return (
         <div>
             {if shown { <SignIn /> }}
-            {if shown { <span ref={$el}>x</span> }}
-            <p data-testid="ref">{el == nil ? "none" : "set"}</p>
-            <button id="hide" onClick={shown = false}>hide</button>
+            {if shown { <span ref={el}>x</span> }}
+            <p data-testid="ref">{ready ? "set" : "none"}</p>
+            <button id="hide" onClick={setShown(false)}>hide</button>
         </div>
     )
 }
@@ -189,7 +191,7 @@ func AddContact() -> Element {
             e.PreventDefault()
             book.Add()
         }>
-            <input id="draft" value={book.$Draft} />
+            <input id="draft" value={book.Draft} onInput={e in book.Draft = e.Value} />
             <p data-testid="count">{book.Contacts.count} contacts</p>
         </form>
     )
@@ -204,7 +206,7 @@ func loadUser(_ id: int) async throws -> string {
 }
 
 func Profile() -> Element {
-    @state.State var id = 1
+    let (id, setId) = useState(1)
     let user = state.Resource<string>(of: { id }) { n in try await loadUser(n) }
     return (
         <section>
@@ -213,21 +215,21 @@ func Profile() -> Element {
             case .ready(let name): <h2>{name}</h2>
             case .failed(_): <p role="alert">not found</p>
             }}
-            <button id="next" onClick={id += 1}>next</button>
-            <button id="none" onClick={id = 0}>none</button>
+            <button id="next" onClick={setId(id + 1)}>next</button>
+            <button id="none" onClick={setId(0)}>none</button>
         </section>
     )
 }
 
 // A ref on an element holding a live region and a list: given before
-// OnMount runs, though the region and the list are built first.
+// the effect runs, though the region and the list are built first.
 var refAtMount = "unset"
 func RefAroundLive() -> Element {
-    @state.State var el: component.Ref = nil
-    @state.State var items: [int] = [1, 2]
-    component.OnMount { refAtMount = el == nil ? "nil" : "set" }
+    let el = useRef<HTMLElement>(nil)
+    let items = [1, 2]
+    useEffect({ refAtMount = el.current == nil ? "nil" : "set" }, [])
     return (
-        <div tabindex="0" ref={$el}>
+        <div tabindex="0" ref={el}>
             {items.count}
             {items.map { i in <span key={i}>{i}</span> }}
         </div>
@@ -245,9 +247,9 @@ func AutoFocused() -> Element {
 
 @MainActor
 func main() async -> int32 {
-    // Refs, OnMount and Focus.
+    // Refs, effects and Focus.
     let si = componenttest.Mount(width: 300, height: 200) { <Toggle /> }
-    check(si.ByTestId("log").Text == "mounted", "OnMount runs once the nodes are in, with refs set (\(si.ByTestId("log").Text))")
+    check(si.ByTestId("log").Text == "mounted", "an effect runs once the nodes are in, with refs set (\(si.ByTestId("log").Text))")
     check(si.Page.FocusedElement === si.Query("#user").First, "and Focus through a ref focuses the field")
     si.Click(si.Query("button[type=button]"))
     check(si.Page.FocusedElement === si.Query("#pass").First, "Focus from a handler")
@@ -255,7 +257,7 @@ func main() async -> int32 {
     si.Click(si.Query("#hide"))
     check(si.ByTestId("ref").Text == "none", "and nil once it is gone")
 
-    // An @Observable store, given through a context, bound both ways.
+    // An @Observable store, given through a context; a field controlled by it.
     let book = Book()
     let bk = componenttest.Mount(width: 300, height: 200) {
         <Books value={book}>
@@ -264,7 +266,7 @@ func main() async -> int32 {
         </Books>
     }
     bk.Type(into: bk.Query("#draft"), "Ada")
-    check(book.Draft == "Ada", "typing writes the store's property through $Draft")
+    check(book.Draft == "Ada", "typing writes the store's property through onInput")
     bk.Press("Enter")
     check(bk.ByRole("listitem").Text == "Ada" && bk.ByTestId("count").Text == "1 contacts",
           "a store's method updates every component that read it (\(bk.ByTestId("count").Text))")
@@ -301,7 +303,7 @@ func main() async -> int32 {
     check(ev.ByTestId("log").Text == "enter,leave,enter,double,menu,leave,focus,blur",
           "onMouseEnter, onMouseLeave, onDoubleClick, onContextMenu, onFocus and onBlur (\(ev.ByTestId("log").Text))")
 
-    // Numbers bound both ways.
+    // Numbers in controlled fields.
     let q = componenttest.Mount(width: 300, height: 120) { <Quantity /> }
     check(q.ByTestId("total").Text == "3.0", "numbers bound to fields show (\(q.ByTestId("total").Text))")
     q.Type(into: q.Query("#qty"), "0")
@@ -335,9 +337,9 @@ func main() async -> int32 {
     // run from ui/, as `vsc run check-componenttest` is.
     check(px.Matches(golden: "cmd/check-componenttest/testdata/tasks.png"), "the pixels are the golden image's")
 
-    // OnMount sees refs whatever is inside the element.
+    // An effect sees refs whatever is inside the element.
     _ = componenttest.Mount(width: 200, height: 100) { <RefAroundLive /> }
-    check(refAtMount == "set", "a ref around a live region and a list is set when OnMount runs (\(refAtMount))")
+    check(refAtMount == "set", "a ref around a live region and a list is set when the effect runs (\(refAtMount))")
 
     // autofocus focuses its element once mounted.
     let af = componenttest.Mount(width: 200, height: 100) { <AutoFocused /> }
