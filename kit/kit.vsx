@@ -9,16 +9,16 @@ import (
 )
 
 /// A titled box around its children.
-public func Card(title: string, children: Children) -> Node {
+public func Card(title: string, children: Children) -> Element {
     return (
-        <section class="card">
-            <h3 class="title">{title}</h3>
+        <section className="card">
+            <h3 className="title">{title}</h3>
             {children()}
         </section>
     )
 }
 
 /// A button in the kit's accent color.
-public func Button(label: string, onPress: () -> void) -> Node {
-    return <button class="button" onClick={onPress()}>{label}</button>
+public func Button(label: string, onPress: () -> void) -> Element {
+    return <button className="button" onClick={onPress()}>{label}</button>
 }

@@ -28,18 +28,18 @@ func check(_ ok: bool, _ what: string) {
     }
 }
 
-func Counter(start: int) -> component.Node {
+func Counter(start: int) -> Element {
     @state.State var count = start
     return (
-        <div class="counter">
+        <div className="counter">
             <h1>Clicked {count} times</h1>
             <button id="inc" onClick={count += 1}>Add one</button>
-            <p class="note" class:big={count >= 7}>{count >= 7 ? "that's a lot" : "keep going"}</p>
+            <p className={count >= 7 ? "note big" : "note"}>{count >= 7 ? "that's a lot" : "keep going"}</p>
         </div>
     )
 }
 
-func Greeter() -> component.Node {
+func Greeter() -> Element {
     @state.State var name = ""
     return (
         <form onSubmit={e in e.PreventDefault()}>
@@ -55,7 +55,7 @@ struct Todo {
     var Done: bool
 }
 
-func Tasks() -> component.Node {
+func Tasks() -> Element {
     @state.State var todos: [Todo] = []
     @state.State var draft = ""
     @state.State var onlyDone = false
@@ -73,11 +73,11 @@ func Tasks() -> component.Node {
                 <input id="draft" value={$draft} />
             </form>
             <ul>
-                <For each={todos.filter { !onlyDone || $0.Done }} key={t in t.ID}>
-                    {t in <li class:done={t.Done} onClick={
+                {todos.filter { !onlyDone || $0.Done }.map { t in
+                    <li key={t.ID} className={t.Done ? "done" : ""} onClick={
                         for i in 0..<todos.count where todos[i].ID == t.ID { todos[i].Done = !todos[i].Done }
-                    }>{t.Title}</li>}
-                </For>
+                    }>{t.Title}</li>
+                }}
             </ul>
             <button id="only" onClick={onlyDone = !onlyDone}>{onlyDone ? "All" : "Done only"}</button>
             <button id="clear" onClick={todos = todos.filter { !$0.Done }}>Clear done</button>
@@ -87,7 +87,7 @@ func Tasks() -> component.Node {
 
 var bodyRuns = 0
 
-func Ticker() -> component.Node {
+func Ticker() -> Element {
     bodyRuns += 1
     @state.State var n = 0
     @state.State var show = true
@@ -99,7 +99,7 @@ func Ticker() -> component.Node {
             <button id="prepend" onClick={items = [items.count + 1] + items}>prepend</button>
             <p id="n">{n}</p>
             {if show { <p id="shown">{n * 10}</p> }}
-            <ul><For each={items} key={i in i}>{i in <li id={"i\(i.Value)"}>{i.Value}</li>}</For></ul>
+            <ul>{items.map { i in <li key={i} id={"i\(i)"}>{i}</li> }}</ul>
         </div>
     )
 }
@@ -145,7 +145,7 @@ func click(_ page: web.Page, _ selector: string) {
 // Lists and optionals as children: Array's and Optional's Renderable
 // conformances are specialized in this module, from component's
 // interface (they once crashed vsc: their bodies weren't in it).
-func Names(_ names: [string]) -> component.Node {
+func Names(_ names: [string]) -> Element {
     return <ul>{names.map { n in <li>{n}</li> }}{names.isEmpty ? <li>none</li> : nil}</ul>
 }
 
@@ -177,7 +177,7 @@ func main() -> int32 {
     check(page.QuerySelector("h1")!.Id == h1.Id, "the heading is patched in place, not rebuilt")
     click(page, "#inc")
     check(page.QuerySelector(".note")!.InnerText() == "that's a lot", "a second click crosses the threshold")
-    check(page.QuerySelector(".note")!.HasClass("big"), "and class:big follows the count")
+    check(page.QuerySelector(".note")!.HasClass("big"), "and className follows the count")
 
     click(page, "#name")
     let field = page.QuerySelector("#name")!
@@ -236,7 +236,7 @@ func main() -> int32 {
     var given: [string] = []
     _ = component.Mount({
         <main>
-            <p class="title" id="own">the program's title</p>
+            <p className="title" id="own">the program's title</p>
             <kit.Card title="the kit's title">
                 <kit.Button label="Go" onPress={} />
             </kit.Card>
@@ -263,12 +263,12 @@ func main() -> int32 {
     tp2.SetViewportSize(draw.Size(200, 100))
     tp2.LoadHTML("<!doctype html><html><head></head><body></body></html>")
     _ = component.Mount({
-        <div style:--kit-accent="rgb(0, 128, 0)"><kit.Button label="Go" onPress={} /></div>
+        <div style={["--kit-accent": "rgb(0, 128, 0)"]}><kit.Button label="Go" onPress={} /></div>
     }, into: tp2.Document!, at: tp2.Document!.Tree.ElementsByTagName("body").first!, styles: { sheets in tp2.SetStyleSheets(sheets) })
     var tpx = [uint8](repeating: 0, count: 200 * 100 * 4)
     tp2.Draw(into: &tpx, width: 200, height: 100, scale: 1)
     let local = tp2.BoxFor(tp2.QuerySelector("button")!)!.Style.BackgroundColor
-    check(local == draw.Color(0, 128, 0), "style:--kit-accent on an element themes the kit under it (got \(local.R),\(local.G),\(local.B))")
+    check(local == draw.Color(0, 128, 0), "style={[--kit-accent: ...]} on an element themes the kit under it (got \(local.R),\(local.G),\(local.B))")
     check(kit.Tokens.Accent.Name == "--kit-accent" && kit.Tokens.Radius.Syntax == "<length>", "the kit's tokens are its generated Tokens")
 
     // Where nothing themes the kit, its tokens' initial values stand.

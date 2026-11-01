@@ -1,4 +1,4 @@
-// ui/componenttest checked on a small task app, as proposed_vsx.md §11
+// ui/componenttest checked on a small task app, as proposed_vsx.md
 // writes a component's test.
 package main
 
@@ -28,7 +28,7 @@ struct Todo {
     var Done: bool
 }
 
-func App() -> Node {
+func App() -> Element {
     @state.State var todos: [Todo] = []
     @state.State var draft = ""
     @state.State var nextID = 1
@@ -46,23 +46,21 @@ func App() -> Node {
                 <label>New task <input placeholder="What needs doing?" value={$draft} /></label>
             </form>
             <ul>
-                <For each={todos} key={t in t.ID}>
-                    {t in
-                        <li class:done={t.Done}>
-                            <input type="checkbox" aria-label={"done: \(t.Title)"} checked={t.Done} onChange={
-                                for i in 0..<todos.count where todos[i].ID == t.ID { todos[i].Done = !todos[i].Done }
-                            } />
-                            <span>{t.Title}</span>
-                        </li>
-                    }
-                </For>
+                {todos.map { t in
+                    <li key={t.ID} className={t.Done ? "done" : ""}>
+                        <input type="checkbox" aria-label={"done: \(t.Title)"} checked={t.Done} onChange={
+                            for i in 0..<todos.count where todos[i].ID == t.ID { todos[i].Done = !todos[i].Done }
+                        } />
+                        <span>{t.Title}</span>
+                    </li>
+                }}
             </ul>
             <p data-testid="left">{todos.filter { !$0.Done }.count} left</p>
         </main>
     )
 }
 
-func Quantity() -> Node {
+func Quantity() -> Element {
     @state.State var qty = 2
     @state.State var price = 1.5
     return (
@@ -74,7 +72,7 @@ func Quantity() -> Node {
     )
 }
 
-func Events() -> Node {
+func Events() -> Element {
     @state.State var log: [string] = []
     return (
         <div>
@@ -90,38 +88,38 @@ func Events() -> Node {
     )
 }
 
-let Theme = component.Context<string>("light")
+let Theme = createContext("light")
 
 final class Session {
     var Name: string
     init(_ name: string) { Name = name }
 }
-let CurrentUser = component.Context<Session?>(nil)
+let CurrentUser = createContext<Session?>(nil)
 
-func Badge() -> Node {
-    let theme = Theme.Value
-    let who = CurrentUser.Value?.Name ?? "nobody"
-    return <span class={"badge " + theme}>{who}</span>
+func Badge() -> Element {
+    let theme = use(Theme)
+    let who = use(CurrentUser)?.Name ?? "nobody"
+    return <span className={"badge " + theme}>{who}</span>
 }
 
-func Themed() -> Node {
+func Themed() -> Element {
     @state.State var open = false
     return (
         <div>
             <Badge />
-            <Theme.Provider value="dark">
-                <CurrentUser.Provider value={Session("ada")}>
+            <Theme value="dark">
+                <CurrentUser value={Session("ada")}>
                     <Badge />
                     {if open { <Badge /> }}
-                    <component.For each={[1, 2]}>{n in <Badge />}</component.For>
-                </CurrentUser.Provider>
-            </Theme.Provider>
+                    {[1, 2].map { n in <Badge key={n} /> }}
+                </CurrentUser>
+            </Theme>
             <button onClick={open = true}>open</button>
         </div>
     )
 }
 
-func SignIn() -> Node {
+func SignIn() -> Element {
     @state.State var user: Ref = nil
     @state.State var pass: Ref = nil
     @state.State var log: [string] = []
@@ -140,7 +138,7 @@ func SignIn() -> Node {
     )
 }
 
-func Toggle() -> Node {
+func Toggle() -> Element {
     @state.State var shown = true
     @state.State var el: Ref = nil
     return (
@@ -173,21 +171,19 @@ struct Contact: Equatable {
     }
 }
 
-let Books = component.Context<Book?>(nil)
+let Books = createContext<Book?>(nil)
 
-func ContactList() -> Node {
-    let book = Books.Value!
+func ContactList() -> Element {
+    let book = use(Books)!
     return (
         <ul>
-            <component.For each={book.Contacts} key={c in c.ID}>
-                {c in <li>{c.Name}</li>}
-            </component.For>
+            {book.Contacts.map { c in <li key={c.ID}>{c.Name}</li> }}
         </ul>
     )
 }
 
-func AddContact() -> Node {
-    let book = Books.Value!
+func AddContact() -> Element {
+    let book = use(Books)!
     return (
         <form onSubmit={e in
             e.PreventDefault()
@@ -207,13 +203,13 @@ func loadUser(_ id: int) async throws -> string {
     return id == 1 ? "Ada" : "Grace"
 }
 
-func Profile() -> Node {
+func Profile() -> Element {
     @state.State var id = 1
     let user = state.Resource<string>(of: { id }) { n in try await loadUser(n) }
     return (
         <section>
             {switch user.State {
-            case .loading: <p class="spinner">loading</p>
+            case .loading: <p className="spinner">loading</p>
             case .ready(let name): <h2>{name}</h2>
             case .failed(_): <p role="alert">not found</p>
             }}
@@ -226,19 +222,19 @@ func Profile() -> Node {
 // A ref on an element holding a live region and a list: given before
 // OnMount runs, though the region and the list are built first.
 var refAtMount = "unset"
-func RefAroundLive() -> Node {
+func RefAroundLive() -> Element {
     @state.State var el: component.Ref = nil
     @state.State var items: [int] = [1, 2]
     component.OnMount { refAtMount = el == nil ? "nil" : "set" }
     return (
         <div tabindex="0" ref={$el}>
             {items.count}
-            <component.For each={items} key={i in i}>{i in <span>{i.Value}</span>}</component.For>
+            {items.map { i in <span key={i}>{i}</span> }}
         </div>
     )
 }
 
-func AutoFocused() -> Node {
+func AutoFocused() -> Element {
     return (
         <form>
             <input id="first" />
@@ -262,10 +258,10 @@ func main() async -> int32 {
     // An @Observable store, given through a context, bound both ways.
     let book = Book()
     let bk = componenttest.Mount(width: 300, height: 200) {
-        <Books.Provider value={book}>
+        <Books value={book}>
             <AddContact />
             <ContactList />
-        </Books.Provider>
+        </Books>
     }
     bk.Type(into: bk.Query("#draft"), "Ada")
     check(book.Draft == "Ada", "typing writes the store's property through $Draft")

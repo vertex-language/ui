@@ -14,4 +14,4 @@ and generated as `kit.Tokens`:
 
 A program themes the kit by setting them: on `:root` in its own `.vss`
 (`:root { --kit-accent: black }`), or on an element in markup
-(`<div style:--kit-accent="green">`). vsc checks each name against these.
+(`<div style={["--kit-accent": "green"]}>`). vsc checks each name against these.

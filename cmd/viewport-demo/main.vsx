@@ -15,14 +15,14 @@ import (
     "web/dom"
 )
 
-func Demo() -> Node {
+func Demo() -> Element {
     var hue = state.Signal(float32(0.6))
     var live = state.Signal(true)
     var handle: viewport.Handle? = nil
     var rows: [any component.Renderable] = []
     for i in 0..<40 {
         rows.append(
-            <div class="row">
+            <div className="row">
                 <span>Slider {i + 1}</span>
                 <input type="range" min="0" max="1" step="0.01" value={"\(hue.Value)"} onInput={e in
                     hue.Value = float32(e.Value) ?? 0
@@ -53,7 +53,7 @@ func Demo() -> Node {
         return px
     }
     return (
-        <div class="app">
+        <div className="app">
             <aside>
                 <button onClick={
                     live.Value = !live.Value
@@ -63,7 +63,7 @@ func Demo() -> Node {
             </aside>
             <main>
                 {viewport.Viewport(class: "view", live: true, handle: { h in handle = h }, paint)}
-                <div class="toolbar"><button onClick={
+                <div className="toolbar"><button onClick={
                     live.Value = !live.Value
                     handle?.Invalidate()
                 }>Over the view: {live.Value ? "pause" : "play"}</button></div>

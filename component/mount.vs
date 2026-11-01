@@ -10,14 +10,14 @@ import (
 /// A root put into a document: its nodes are made once, as the children
 /// of the element it was mounted at, and each live part keeps itself up
 /// to date -- a live text its text, a live attribute its value, a live
-/// region its nodes, a list its rows -- until the root is unmounted.
+/// region its nodes, a keyed list its rows -- until the root is unmounted.
 public final class Mounted {
     let doc: dom.Document
     let parent: html.Node
     let styles: (([string]) -> void)?
     let focus: ((html.Node?) -> void)?
     let measure: ((html.Node) -> draw.Rect?)?
-    /// What the root made: every binding, and every list's rows.
+    /// What the root made: every binding, and every keyed list's rows.
     let owner = state.Owner()
     var used: [Sheet] = []
     var given: [string] = []
@@ -50,12 +50,13 @@ public final class Mounted {
             doc.InsertBefore(parent, doc.CreateTextNode(n.Text), before)
             return
         }
-        if let f = n.live {
-            region(f, into: parent, before: before)
+        if let mk = n.makeKeyed {
+            if let s = n.sheet { note(s) }
+            for c in mk().Nodes() { build(c, into: parent, before: before) }
             return
         }
-        if let spec = n.list {
-            list(spec, into: parent, before: before)
+        if let f = n.live {
+            region(f, into: parent, before: before)
             return
         }
         if n.Tag.isEmpty {
@@ -64,20 +65,14 @@ public final class Mounted {
             return
         }
         let el = doc.CreateElement(n.Tag)
+        populateElement(n, el, into: parent, before: before)
+    }
+
+    func populateElement(_ n: Node, _ el: html.Node, into parent: html.Node, before: html.Node?) {
         if let s = n.sheet { note(s) }
         for (name, value) in n.attrs { doc.SetAttribute(el, name, value) }
-        // The class and style attributes, with their live parts: one
-        // binding each, where anything in them is live.
-        if n.liveClasses.isEmpty {
-            if let c = n.classNow() { doc.SetAttribute(el, "class", c) }
-        } else {
-            bind { self.set(el, "class", n.classNow()) }
-        }
-        if n.liveStyles.isEmpty {
-            if let st = n.styleNow() { doc.SetAttribute(el, "style", st) }
-        } else {
-            bind { self.set(el, "style", n.styleNow()) }
-        }
+        if let c = n.classNow() { doc.SetAttribute(el, "class", c) }
+        if let st = n.styleNow() { doc.SetAttribute(el, "style", st) }
         for (name, f) in n.liveAttrs {
             bind { self.set(el, name, f()) }
         }
@@ -90,13 +85,78 @@ public final class Mounted {
             give(el)
             state.OnCleanup { give(nil) }
         }
-        // `autofocus`: the element takes focus once it is in, as a page's
-        // first autofocus element does.
         for (name, _) in n.attrs where name == "autofocus" {
             let me = self
             toMount.append({ me.focus?(el) })
             break
         }
+    }
+
+    func patchElement(_ n: Node, _ el: html.Node, owner: state.Owner) {
+        buildDepth += 1
+        defer { buildDepth -= 1 }
+        owner.Dispose()
+        doc.RemoveEventListeners(within: el)
+        state.WithOwner(owner) {
+            self.patchElementInOwner(n, el)
+        }
+    }
+
+    func patchElementInOwner(_ n: Node, _ el: html.Node) {
+        if let s = n.sheet { self.note(s) }
+        var oldAttrs: [string] = []
+        for a in el.Attributes { oldAttrs.append(a.Name) }
+        for name in oldAttrs { self.doc.RemoveAttribute(el, name) }
+        for (name, value) in n.attrs { self.doc.SetAttribute(el, name, value) }
+        if let c = n.classNow() { self.doc.SetAttribute(el, "class", c) }
+        if let st = n.styleNow() { self.doc.SetAttribute(el, "style", st) }
+        for (name, f) in n.liveAttrs {
+            self.bind { self.set(el, name, f()) }
+        }
+        for (event, h) in n.handlers {
+            _ = self.doc.AddEventListener(el, event, { e in self.hosting { h(e) } })
+        }
+        if self.canPatchChildrenInPlace(n.Children, el.Children) {
+            var i = 0
+            while i < n.Children.count {
+                let nc = n.Children[i]
+                let oc = el.Children[i]
+                if nc.isText {
+                    if oc.Text != nc.Text { self.doc.SetText(oc, nc.Text) }
+                } else {
+                    self.patchElementInOwner(nc, oc)
+                }
+                i += 1
+            }
+        } else {
+            for c in el.Children { self.remove(c) }
+            for c in n.Children { self.build(c, into: el, before: nil) }
+        }
+        for give in n.refs {
+            give(el)
+            state.OnCleanup { give(nil) }
+        }
+    }
+
+    func canPatchChildrenInPlace(_ next: [Node], _ curr: [html.Node]) -> bool {
+        if next.count != curr.count { return false }
+        var i = 0
+        while i < next.count {
+            let nc = next[i]
+            let oc = curr[i]
+            if nc.live != nil || nc.makeKeyed != nil {
+                return false
+            }
+            if nc.isText {
+                if oc.Kind != html.NodeKind.text { return false }
+            } else if nc.Tag.isEmpty {
+                return false
+            } else {
+                if oc.Kind != html.NodeKind.element || oc.TagName != nc.Tag { return false }
+            }
+            i += 1
+        }
+        return true
     }
 
     /// Runs body as this root's code: what it calls Focus on is focused
@@ -126,16 +186,28 @@ public final class Mounted {
 
     /// A live region: its nodes between two markers, made again -- and
     /// what they made disposed -- when what it read changes. Text that
-    /// stays text is changed in place.
+    /// stays text is changed in place; keyed elements (`key={...}`) are
+    /// reconciled by key.
     func region(_ f: () -> [Node], into parent: html.Node, before: html.Node?) {
         let start = doc.CreateTextNode("")
         let end = doc.CreateTextNode("")
         doc.InsertBefore(parent, start, before)
         doc.InsertBefore(parent, end, before)
+        let rows = RowTable()
+        state.OnCleanup {
+            for r in rows.rows { r.owner.Dispose() }
+        }
         bind {
             let nodes = f()
             state.Untracked {
                 guard let p = end.Parent else { return }
+                let hasKeys = !nodes.isEmpty && nodes.allSatisfy { !$0.key.isEmpty }
+                if hasKeys || (!rows.rows.isEmpty && nodes.isEmpty) {
+                    self.reconcileKeyed(nodes, rows: rows, in: p, start: start, end: end)
+                    return
+                }
+                for r in rows.rows { r.owner.Dispose() }
+                rows.rows = []
                 let current = self.between(start, end)
                 if nodes.count == 1 && nodes[0].isText && current.count == 1 && current[0].Kind == html.NodeKind.text {
                     if current[0].Text != nodes[0].Text { self.doc.SetText(current[0], nodes[0].Text) }
@@ -149,77 +221,64 @@ public final class Mounted {
         }
     }
 
-    /// A keyed list: each key's row made once, under an owner of its own,
-    /// kept and moved while its key is in the list, and disposed when it
-    /// goes.
-    func list(_ spec: ListSpec, into parent: html.Node, before: html.Node?) {
-        let start = doc.CreateTextNode("")
-        let end = doc.CreateTextNode("")
-        doc.InsertBefore(parent, start, before)
-        doc.InsertBefore(parent, end, before)
-        let rows = RowTable()
-        state.OnCleanup {
-            for r in rows.rows { r.owner.Dispose() }
-        }
-        bind {
-            let count = spec.count()
-            state.Untracked {
-                guard let p = end.Parent else { return }
-                var keys: [int] = []
-                var i = 0
-                while i < count {
-                    keys.append(spec.key(i))
-                    i += 1
-                }
-                // Rows whose key is gone.
-                var kept: [Row] = []
-                for r in rows.rows {
-                    if keys.contains(r.key) {
-                        kept.append(r)
-                    } else {
-                        r.owner.Dispose()
-                        for c in self.between(r.start, r.end) { self.remove(c) }
-                        self.remove(r.start)
-                        self.remove(r.end)
-                        spec.drop(r.key)
-                    }
-                }
-                // Each key's row, in order: kept and given its item, or
-                // made; moved where it is out of place.
-                var next: [Row] = []
-                var cursor: html.Node = self.after(start) ?? end
-                i = 0
-                while i < keys.count {
-                    let k = keys[i]
-                    var row: Row? = nil
-                    for r in kept where r.key == k { row = r }
-                    if let r = row {
-                        spec.update(i, k)
-                        if r.start !== cursor {
-                            for c in [r.start] + self.between(r.start, r.end) + [r.end] {
-                                self.doc.InsertBefore(p, c, cursor)
-                            }
-                        } else {
-                            cursor = self.after(r.end) ?? end
-                        }
-                        next.append(r)
-                    } else {
-                        let r = Row(key: k, start: self.doc.CreateTextNode(""), end: self.doc.CreateTextNode(""))
-                        self.doc.InsertBefore(p, r.start, cursor)
-                        self.doc.InsertBefore(p, r.end, cursor)
-                        state.WithOwner(r.owner) {
-                            let node = spec.make(i, k)
-                            self.build(node, into: p, before: r.end)
-                        }
-                        next.append(r)
-                    }
-                    i += 1
-                }
-                rows.rows = next
-                self.giveSheets()
-                self.hosting { runMounted() }
+    func reconcileKeyed(_ nodes: [Node], rows: RowTable, in p: html.Node, start: html.Node, end: html.Node) {
+        var keys: [string] = []
+        for n in nodes { keys.append(n.key) }
+        var kept: [Row] = []
+        for r in rows.rows {
+            if keys.contains(r.key) {
+                kept.append(r)
+            } else {
+                r.owner.Dispose()
+                for c in self.between(r.start, r.end) { self.remove(c) }
+                self.remove(r.start)
+                self.remove(r.end)
             }
         }
+        var next: [Row] = []
+        var cursor: html.Node = self.after(start) ?? end
+        var i = 0
+        while i < nodes.count {
+            let n = nodes[i]
+            let k = n.key
+            var row: Row? = nil
+            for r in kept where r.key == k { row = r }
+            if let r = row {
+                if r.start !== cursor {
+                    for c in [r.start] + self.between(r.start, r.end) + [r.end] {
+                        self.doc.InsertBefore(p, c, cursor)
+                    }
+                } else {
+                    cursor = self.after(r.end) ?? end
+                }
+                if n.makeKeyed == nil, let el = r.el, el.TagName == n.Tag {
+                    self.patchElement(n, el, owner: r.owner)
+                }
+                next.append(r)
+            } else {
+                let r = Row(key: k, start: self.doc.CreateTextNode(""), end: self.doc.CreateTextNode(""))
+                self.doc.InsertBefore(p, r.start, cursor)
+                self.doc.InsertBefore(p, r.end, cursor)
+                state.WithOwner(r.owner) {
+                    if let mk = n.makeKeyed {
+                        if let s = n.sheet { self.note(s) }
+                        let built = mk()
+                        for c in built.Nodes() { self.build(c, into: p, before: r.end) }
+                    } else if !n.Tag.isEmpty {
+                        let el = self.doc.CreateElement(n.Tag)
+                        r.el = el
+                        self.populateElement(n, el, into: p, before: r.end)
+                    } else {
+                        self.build(n, into: p, before: r.end)
+                    }
+                }
+                next.append(r)
+            }
+            i += 1
+        }
+        rows.rows = next
+        self.giveSheets()
+        self.hosting { runMounted() }
     }
 
     /// The nodes strictly between two markers.
@@ -271,12 +330,13 @@ public final class Mounted {
 /// One row of a keyed list: its key, the markers around its nodes, and
 /// the owner of what making it made.
 final class Row {
-    let key: int
+    let key: string
     let start: html.Node
     let end: html.Node
+    var el: html.Node? = nil
     let owner = state.Owner()
 
-    init(key: int, start: html.Node, end: html.Node) {
+    init(key: string, start: html.Node, end: html.Node) {
         self.key = key
         self.start = start
         self.end = end
@@ -346,8 +406,8 @@ public func OnMount(_ f: () -> void) {
 }
 
 /// How deep the build in progress is. OnMount's work waits for the
-/// outermost to end: a live region or a <For> inside an element is built
-/// before the element is in the document and its refs are given.
+/// outermost to end: a live region inside an element is built before
+/// the element is in the document and its refs are given.
 var buildDepth = 0
 
 func runMounted() {

@@ -43,6 +43,18 @@ public struct Context<T> {
     }
 }
 
+public func createContext<T>(_ fallback: T) -> Context<T> {
+    return Context<T>(fallback)
+}
+
+public func use<T>(_ ctx: Context<T>) -> T {
+    return ctx.Value
+}
+
+public func useContext<T>(_ ctx: Context<T>) -> T {
+    return ctx.Value
+}
+
 /// The values given around the code running now, innermost first.
 final class Frame {
     let key: int
@@ -86,6 +98,18 @@ func provided(_ key: int) -> Any? {
 
 /// f, run inside the values given where it was made.
 func captured(_ f: () -> [Node]) -> () -> [Node] {
+    let at = frames
+    if at == nil { return f }
+    return {
+        let prev = frames
+        frames = at
+        let r = f()
+        frames = prev
+        return r
+    }
+}
+
+func capturedNode(_ f: () -> Node) -> () -> Node {
     let at = frames
     if at == nil { return f }
     return {
