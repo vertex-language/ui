@@ -66,6 +66,8 @@ export namespace EventKind {
     constexpr int32_t filesDropped = 19;  // x, y: where; text: the paths, a line each
     constexpr int32_t colorPicked = 20;  // text: the color, #rrggbb
     constexpr int32_t menuCommand = 21;  // code: the item's id
+    constexpr int32_t accessibilityWanted = 22;  // an assistive technology asked: send a tree
+    constexpr int32_t accessibilityAction = 23;  // code: the node; x: 0 press, 1 focus, 2 value; text: the value
 }
 
 // Modifier bits.
@@ -164,6 +166,16 @@ export int32_t winClipboardText(char* buf, int32_t cap) noexcept;
 export int32_t winPickFiles(int32_t multiple, const char* accept, char* buf, int32_t cap) noexcept;
 export int32_t winPickDate(const char* type, const char* value, char* buf, int32_t cap) noexcept;
 export void winPickColor(const char* color) noexcept;
+
+// What an assistive technology is shown of a window, a line per thing, each
+// after its parent: "id<tab>parent<tab>role<tab>name<tab>value<tab>x<tab>y<tab>w<tab>h<tab>flags",
+// with flags 1 focused, 2 disabled, 4 checked, 8 expanded, and levels above.
+export void winSetAccessibility(int32_t window, const char* spec) noexcept;
+// That tree as the system's accessibility API reads it, a line per thing:
+// "depth role label value width height". The size of it with a cap of 0.
+export int32_t winAccessibilityDump(int32_t window, char* buf, int32_t cap) noexcept;
+// Whether this system has those panels.
+export int32_t winHasPanels() noexcept;
 
 // The menu bar, after the application's own menu, and the status item in the
 // system's bar ("" title and spec takes it away). A spec is a line for each

@@ -267,10 +267,78 @@ static void pushKind(CWWindow* w, int32_t kind, int32_t code, double x, double y
 
 // ---- the view: input, drawing, and text ----
 
+// One thing in a window's accessibility tree.
+@interface CWAccessible : NSAccessibilityElement
+@property (nonatomic, assign) CWWindow* owner;
+@property (nonatomic) int32_t node;
+@property (nonatomic) NSRect viewRect;
+@property (nonatomic, strong) NSString* ariaRole;
+@property (nonatomic, strong) NSMutableArray* kids;
+@property (nonatomic) BOOL focusedNow;
+@property (nonatomic) BOOL disabledNow;
+@property (nonatomic, strong) id valueNow;
+@end
+
 @interface CWView : NSView <NSTextInputClient>
 @property (nonatomic, assign) CWWindow* owner;
+@property (nonatomic, strong) NSMutableArray* accessibleTop;
+@property (nonatomic, strong) CWAccessible* accessibleFocus;
+@property (nonatomic) BOOL accessibleAsked;
 @property (nonatomic, strong) NSTrackingArea* tracking;
 @property (nonatomic, strong) NSString* marked;
+@end
+
+static NSAccessibilityRole axRoleOf(NSString* role) {
+    NSDictionary* roles = @{
+        @"button": NSAccessibilityButtonRole, @"link": NSAccessibilityLinkRole,
+        @"checkbox": NSAccessibilityCheckBoxRole, @"switch": NSAccessibilityCheckBoxRole, @"radio": NSAccessibilityRadioButtonRole,
+        @"textbox": NSAccessibilityTextFieldRole, @"searchbox": NSAccessibilityTextFieldRole, @"spinbutton": NSAccessibilityIncrementorRole,
+        @"combobox": NSAccessibilityPopUpButtonRole, @"slider": NSAccessibilitySliderRole, @"progressbar": NSAccessibilityProgressIndicatorRole,
+        @"img": NSAccessibilityImageRole, @"text": NSAccessibilityStaticTextRole, @"heading": @"AXHeading",
+        @"list": NSAccessibilityListRole, @"table": NSAccessibilityTableRole, @"row": NSAccessibilityRowRole, @"cell": NSAccessibilityCellRole,
+        @"columnheader": NSAccessibilityCellRole, @"menu": NSAccessibilityMenuRole, @"menuitem": NSAccessibilityMenuItemRole,
+        @"tab": NSAccessibilityRadioButtonRole, @"tablist": NSAccessibilityTabGroupRole,
+        @"separator": NSAccessibilitySplitterRole,
+    };
+    return roles[role] ?: NSAccessibilityGroupRole;
+}
+
+@implementation CWAccessible
+- (BOOL)isAccessibilityElement { return YES; }
+- (NSArray*)accessibilityChildren { return self.kids; }
+- (BOOL)isAccessibilityFocused { return self.focusedNow; }
+- (BOOL)isAccessibilityEnabled { return !self.disabledNow; }
+- (id)accessibilityValue { return self.valueNow; }
+- (NSRect)accessibilityFrame {
+    CWView* view = self.owner.view;
+    NSRect inWindow = [view convertRect:self.viewRect toView:nil];
+    return [view.window convertRectToScreen:inWindow];
+}
+- (void)send:(double)action text:(NSString*)text {
+    Event e = {0};
+    e.kind = EventKind::accessibilityAction;
+    e.code = self.node;
+    e.x = action;
+    if (text != nil) e.text = strdup([text UTF8String]);
+    push(self.owner, e);
+}
+- (BOOL)accessibilityPerformPress { [self send:0 text:nil]; return YES; }
+- (BOOL)accessibilityPerformPick { [self send:0 text:nil]; return YES; }
+- (void)setAccessibilityFocused:(BOOL)focused { if (focused) [self send:1 text:nil]; }
+- (void)setAccessibilityValue:(id)value { [self send:2 text:[value description]]; }
+- (BOOL)isAccessibilitySelectorAllowed:(SEL)selector {
+    if (selector == @selector(accessibilityPerformPress) || selector == @selector(accessibilityPerformPick)) return !self.disabledNow;
+    return [super isAccessibilitySelectorAllowed:selector];
+}
+// The deepest thing at a point in the view.
+- (id)hitAt:(NSPoint)p {
+    if (!NSPointInRect(p, self.viewRect) && self.kids.count == 0) return nil;
+    for (CWAccessible* k in [self.kids reverseObjectEnumerator]) {
+        id hit = [k hitAt:p];
+        if (hit != nil) return hit;
+    }
+    return NSPointInRect(p, self.viewRect) ? self : nil;
+}
 @end
 
 @implementation CWView
@@ -283,6 +351,26 @@ static void pushKind(CWWindow* w, int32_t kind, int32_t code, double x, double y
 // tab, a button -- is the page's, never the window's to take.
 - (BOOL)mouseDownCanMoveWindow { return NO; }
 - (BOOL)wantsUpdateLayer { return YES; }
+
+// The tree the program sends; the first to ask gets one sent.
+- (BOOL)isAccessibilityElement { return NO; }
+- (NSArray*)accessibilityChildren {
+    if (!self.accessibleAsked) {
+        self.accessibleAsked = YES;
+        pushKind(self.owner, EventKind::accessibilityWanted, 0, 0, 0);
+    }
+    return self.accessibleTop ?: @[];
+}
+- (id)accessibilityFocusedUIElement { return self.accessibleFocus ?: self; }
+- (id)accessibilityHitTest:(NSPoint)point {
+    NSPoint p = [self convertPoint:[self.window convertPointFromScreen:point] fromView:nil];
+    id found = nil;
+    for (CWAccessible* a in self.accessibleTop) {
+        id hit = [a hitAt:p];
+        if (hit != nil) found = hit;
+    }
+    return found ?: self;
+}
 
 // Files dragged in from outside: the page takes them when they land.
 - (void)viewDidMoveToWindow {
@@ -1272,6 +1360,83 @@ int32_t winPickDate(const char* type, const char* value, char* buf, int32_t cap)
 @end
 
 static CWColorTarget* colorTarget = nil;
+
+int32_t winHasPanels() noexcept { return 1; }
+
+void winSetAccessibility(int32_t window, const char* spec) noexcept {
+    CWWindow* w = windowOf(window);
+    if (w == nil) return;
+    @autoreleasepool {
+        CWView* view = w.view;
+        NSMutableArray* top = [NSMutableArray array];
+        NSMutableDictionary* byId = [NSMutableDictionary dictionary];
+        CWAccessible* focus = nil;
+        for (NSString* line in [[NSString stringWithUTF8String:spec ? spec : ""] componentsSeparatedByString:@"\n"]) {
+            NSArray<NSString*>* f = [line componentsSeparatedByString:@"\t"];
+            if (f.count < 10) continue;
+            CWAccessible* a = [[CWAccessible alloc] init];
+            a.owner = w;
+            a.node = f[0].intValue;
+            a.ariaRole = f[2];
+            a.kids = [NSMutableArray array];
+            a.viewRect = NSMakeRect(f[5].doubleValue, f[6].doubleValue, f[7].doubleValue, f[8].doubleValue);
+            int flags = f[9].intValue;
+            a.focusedNow = (flags & 1) != 0;
+            a.disabledNow = (flags & 2) != 0;
+            NSAccessibilityRole role = axRoleOf(f[2]);
+            [a setAccessibilityRole:role];
+            [a setAccessibilityLabel:f[3]];
+            if ([f[2] isEqualToString:@"checkbox"] || [f[2] isEqualToString:@"radio"] || [f[2] isEqualToString:@"switch"]) {
+                a.valueNow = @((flags & 4) != 0 ? 1 : 0);
+            } else if ([f[2] isEqualToString:@"heading"]) {
+                a.valueNow = @(flags >> 8);
+            } else if (f[4].length > 0) {
+                a.valueNow = f[4];
+            }
+            if ((flags & 8) != 0) [a setAccessibilityExpanded:YES];
+            if (a.focusedNow) focus = a;
+            byId[f[0]] = a;
+            CWAccessible* parent = byId[f[1]];
+            if (parent != nil) {
+                [a setAccessibilityParent:parent];
+                [parent.kids addObject:a];
+            } else {
+                [a setAccessibilityParent:view];
+                [top addObject:a];
+            }
+        }
+        view.accessibleTop = top;
+        CWAccessible* before = view.accessibleFocus;
+        view.accessibleFocus = focus;
+        NSAccessibilityPostNotification(view, NSAccessibilityLayoutChangedNotification);
+        if (focus != nil && (before == nil || before.node != focus.node)) {
+            NSAccessibilityPostNotification(focus, NSAccessibilityFocusedUIElementChangedNotification);
+        }
+    }
+}
+
+static void axDump(id element, int depth, NSMutableString* out) {
+    [out appendFormat:@"%d\t%@\t%@\t%@\t%.0f\t%.0f\n", depth, [element accessibilityRole] ?: @"", [element accessibilityLabel] ?: @"",
+                      [element accessibilityValue] ?: @"", [element accessibilityFrame].size.width, [element accessibilityFrame].size.height];
+    for (id kid in [element accessibilityChildren]) axDump(kid, depth + 1, out);
+}
+
+int32_t winAccessibilityDump(int32_t window, char* buf, int32_t cap) noexcept {
+    CWWindow* w = windowOf(window);
+    if (w == nil) return 0;
+    @autoreleasepool {
+        NSMutableString* out = [NSMutableString string];
+        for (id kid in [w.view accessibilityChildren]) axDump(kid, 0, out);
+        const char* text = [out UTF8String];
+        int32_t n = (int32_t)strlen(text);
+        if (buf != NULL && cap > 0) {
+            int32_t m = n < cap - 1 ? n : cap - 1;
+            memcpy(buf, text, (size_t)m);
+            buf[m] = 0;
+        }
+        return n;
+    }
+}
 
 void winPickColor(const char* color) noexcept {
     @autoreleasepool {

@@ -49,6 +49,13 @@ public enum Event {
     case colorPicked(string)
     /// A menu item (SetMenus, SetStatusItem) was chosen: its id.
     case menuCommand(int32)
+    /// An assistive technology asked what the window shows: send
+    /// SetAccessibility a tree, and keep it current.
+    case accessibilityWanted
+    /// It asked for something done to a node: press, focus, or a value.
+    case accessibilityPress(int32)
+    case accessibilityFocus(int32)
+    case accessibilitySetValue(int32, string)
 }
 
 /// A key press or release.

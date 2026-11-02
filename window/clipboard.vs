@@ -16,6 +16,10 @@ public func ClipboardText() -> string {
     return string(cString: buf)
 }
 
+/// Whether this system has panels for files, dates and colors: where it
+/// hasn't, a page shows its own.
+public func HasPanels() -> bool { return winHasPanels() != 0 }
+
 /// Asks for files in the system's panel, and waits. accept is an <input>'s
 /// (".png,image/*"). Empty where cancelled.
 public func PickFiles(multiple: bool, accept: string) -> [string] {

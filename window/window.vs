@@ -83,6 +83,23 @@ public func (w: borrowing Window) WaitEvent() async -> Event? {
     }
 }
 
+/// Sends what an assistive technology is shown (see winSetAccessibility).
+public func (w: borrowing Window) SetAccessibility(spec: string) {
+    winSetAccessibility(w.Id, spec)
+}
+
+/// The tree as the system's accessibility API reads it back, a line per
+/// thing: depth, role, label, value, width and height, between tabs.
+public func (w: borrowing Window) AccessibilityDump() -> string {
+    let n = winAccessibilityDump(w.Id, nil, 0)
+    if n <= 0 { return "" }
+    var buf = [CChar](repeating: 0, count: int(n) + 1)
+    _ = buf.withUnsafeMutableBufferPointer { bp in
+        winAccessibilityDump(w.Id, bp.baseAddress, int32(bp.count))
+    }
+    return string(cString: buf)
+}
+
 /// The next event if one is already queued, and nil if none is. Never waits.
 public func (w: borrowing Window) PollEvent() -> Event? {
     while true {

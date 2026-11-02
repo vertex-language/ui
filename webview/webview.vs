@@ -56,18 +56,21 @@ public final class WebView {
         // has been. A host that handles navigation itself sets its own.
         Page.OnNavigate { target in self.Navigate(target) }
         Page.IsVisited { u in self.visited.contains(u) }
-        // A file input, a date and a color well ask the system's panels. A
-        // host with its own sets its own.
-        Page.OnPickFiles { node, multiple, accept in
-            let paths = window.PickFiles(multiple: multiple, accept: accept)
-            if !paths.isEmpty { self.Page.SetFiles(node, paths: paths) }
-        }
-        Page.OnPickDate { node, type, value in
-            if let v = window.PickDate(type: type, value: value) { self.Page.SetControlValue(node, v) }
-        }
-        Page.OnPickColor { node, color in
-            self.pickingColor = node
-            window.PickColor(color: color)
+        // A file input, a date and a color well ask the system's panels,
+        // where it has them; elsewhere the page shows its own. A host with
+        // its own sets its own.
+        if window.HasPanels() {
+            Page.OnPickFiles { node, multiple, accept in
+                let paths = window.PickFiles(multiple: multiple, accept: accept)
+                if !paths.isEmpty { self.Page.SetFiles(node, paths: paths) }
+            }
+            Page.OnPickDate { node, type, value in
+                if let v = window.PickDate(type: type, value: value) { self.Page.SetControlValue(node, v) }
+            }
+            Page.OnPickColor { node, color in
+                self.pickingColor = node
+                window.PickColor(color: color)
+            }
         }
     }
 
@@ -89,6 +92,12 @@ public final class WebView {
         if case .modifiersChanged(let m) = event {
             Page.SetModifiers(pageModifiers(m))
             return .ignored
+        }
+        switch event {
+        case .accessibilityPress(let id): return Page.AccessibilityPress(int64(id)) ? .handled : .ignored
+        case .accessibilityFocus(let id): return Page.AccessibilityFocus(int64(id)) ? .handled : .ignored
+        case .accessibilitySetValue(let id, let value): return Page.AccessibilitySetValue(int64(id), value: value) ? .handled : .ignored
+        default: break
         }
         if case .filesDropped(let paths, let at) = event {
             return Page.DropFiles(paths, at: local(at)) ? .handled : .ignored
@@ -141,6 +150,31 @@ public final class WebView {
     /// The color well the next colorPicked is for, for a host
     /// with its own OnPickColor.
     public func PickingColor(node: html.Node) { pickingColor = node }
+
+    /// The page's accessibility tree as a window sends it on, in the
+    /// window's points. "" where there is none.
+    public func AccessibilitySpec() -> string {
+        guard let tree = Page.AccessibilityTree() else { return "" }
+        var lines: [string] = []
+        // A line each, split by tabs: neither may be in the text.
+        func clean(s: string) -> string {
+            var out: [uint8] = []
+            for b in s.utf8 { out.append(b == 9 || b == 10 || b == 13 ? 32 : b) }
+            return string(decoding: out, as: UTF8.self)
+        }
+        func walk(n: web.AccessibleNode, parent: int64) {
+            var flags = 0
+            if n.Focused { flags |= 1 }
+            if n.Disabled { flags |= 2 }
+            if n.Checked { flags |= 4 }
+            if n.Expanded { flags |= 8 }
+            flags |= n.Level << 8
+            lines.append("\(n.Id)\t\(parent)\t\(n.Role)\t\(clean(n.Name))\t\(clean(n.Value))\t\(n.Bounds.X + origin.X)\t\(n.Bounds.Y + origin.Y)\t\(n.Bounds.Width)\t\(n.Bounds.Height)\t\(flags)")
+            for c in n.Children { walk(c, parent: n.Id) }
+        }
+        walk(tree, parent: 0)
+        return lines.joined(separator: "\n")
+    }
 
     /// A window's pointer as the page's: a pen says it's one, how hard it
     /// presses and how it leans.

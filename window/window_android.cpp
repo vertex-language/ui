@@ -744,6 +744,9 @@ void winSetClipboardText(const char* text) { (void)text; }
 int32_t winPickFiles(int32_t, const char*, char*, int32_t) { return 0; }
 int32_t winPickDate(const char*, const char*, char*, int32_t) { return 0; }
 void winPickColor(const char*) {}
+void winSetAccessibility(int32_t, const char*) {}
+int32_t winAccessibilityDump(int32_t, char*, int32_t) { return 0; }
+int32_t winHasPanels() { return 0; }
 void winSetMenus(const char*) {}
 void winSetStatusItem(const char*, const char*) {}
 int32_t winMenuCount() { return 0; }

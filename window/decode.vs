@@ -88,6 +88,13 @@ func decode(id: int32, kind: int32) -> Event? {
         return .filesDropped(paths, Point(float32(winEventX(id)), float32(winEventY(id))))
     case 20: return .colorPicked(eventText(id))
     case 21: return .menuCommand(winEventCode(id))
+    case 22: return .accessibilityWanted
+    case 23:
+        switch int32(winEventX(id)) {
+        case 0: return .accessibilityPress(winEventCode(id))
+        case 1: return .accessibilityFocus(winEventCode(id))
+        default: return .accessibilitySetValue(winEventCode(id), eventText(id))
+        }
     default: return nil
     }
 }

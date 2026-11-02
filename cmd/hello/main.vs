@@ -27,6 +27,10 @@ func describe(e: window.Event) -> string {
     case .filesDropped(let paths, _): return "dropped \(paths.count) files"
     case .colorPicked(let c): return "color \(c)"
     case .menuCommand(let id): return "menu command \(id)"
+    case .accessibilityWanted: return "accessibility wanted"
+    case .accessibilityPress(let id): return "accessibility press \(id)"
+    case .accessibilityFocus(let id): return "accessibility focus \(id)"
+    case .accessibilitySetValue(let id, _): return "accessibility value \(id)"
     }
 }
 

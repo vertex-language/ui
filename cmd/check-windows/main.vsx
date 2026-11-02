@@ -23,8 +23,10 @@ func check(ok: bool, what: string) {
 
 var shared = state.Signal(0)
 
+var axPressed = 0
+
 func Root() -> Element {
-    return <p id="main">main {shared.Value}</p>
+    return <div><p id="main">main {shared.Value}</p><button onClick={ axPressed += 1 }>Press me</button><input aria-label="Name" value="Ada" /><h2>Title</h2></div>
 }
 
 func Second() -> Element {
@@ -43,6 +45,14 @@ func test() async {
         app.MenuItem(title: "Off", enabled: false) { chosen += 100 },
     ])])
     check(window.MenuCount() == 1, "a menu is in the bar (\(window.MenuCount()))")
+    // What VoiceOver reads, through the system's own API.
+    _ = app.AccessibilityDump()
+    try? await time.Sleep(time.Duration.Milliseconds(300))
+    let dump = app.AccessibilityDump()
+    check(dump.contains("AXButton\tPress me"), "a button reaches the system's accessibility API (\(dump))")
+    check(dump.contains("AXTextField\tName\tAda"), "a field, with its label and value")
+    check(dump.contains("AXHeading\tTitle"), "a heading")
+    check(dump.contains("AXStaticText\tmain 0"), "text")
     guard let second = app.OpenWindow(title: "Second", root: { <Second /> }) else {
         check(false, "a second window opens")
         app.Quit()

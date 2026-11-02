@@ -58,6 +58,9 @@ final class Host {
     /// viewports composed on the device. Nil draws on the CPU and
     /// presents through the window's surface (VSX_NO_GPU=1 forces that).
     var accel: viewport.Accelerator? = nil
+    /// Whether an assistive technology has asked, and what it was last sent.
+    var accessibilityWanted = false
+    var sentAccessibility = ""
 
     init(win: window.Window) {
         self.win = win
@@ -112,6 +115,7 @@ final class Host {
         if repaint {
             view.Draw(into: &pixels, canvasSize: pixelSize, scale: win.ScaleFactor())
             stale = false
+            sendAccessibility()
         }
         let t1 = time.Instant.Now()
         var drew = false
@@ -169,6 +173,10 @@ final class Host {
             if forced == nil { view.Page.SetColorScheme(dark: t == .dark) }
             requestFrame()
             return true
+        case .accessibilityWanted:
+            accessibilityWanted = true
+            sendAccessibility()
+            return true
         case .menuCommand(let id):
             if let action = menuActions[id] { state.Batch { action() } }
             requestAllFrames()
@@ -193,6 +201,17 @@ final class Host {
         // What this window's handlers wrote may show in the others.
         if !secondWindows.isEmpty { requestAllFrames() }
         return true
+    }
+
+    /// Keeps what an assistive technology sees current, once one has asked:
+    /// nothing is built for a user who doesn't need it.
+    func sendAccessibility() {
+        if !accessibilityWanted { return }
+        let spec = view.AccessibilitySpec()
+        if spec != sentAccessibility {
+            sentAccessibility = spec
+            win.SetAccessibility(spec)
+        }
     }
 
     func requestAllFrames() {
@@ -270,6 +289,13 @@ public func SetMenus(menus: [Menu]) {
 @MainActor
 public func SetStatusItem(title: string, items: [MenuItem] = []) {
     window.SetStatusItem(title: title, items: nativeItems(items))
+}
+
+/// The first window's tree as the system's accessibility API reads it, for
+/// a check. Asking is what an assistive technology does first.
+@MainActor
+public func AccessibilityDump() -> string {
+    return current?.win.AccessibilityDump() ?? ""
 }
 
 /// A window OpenWindow made.
