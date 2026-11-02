@@ -47,6 +47,8 @@ public enum Event {
     case filesDropped([string], Point)
     /// The color panel (PickColor) has a new color: #rrggbb.
     case colorPicked(string)
+    /// A menu item (SetMenus, SetStatusItem) was chosen: its id.
+    case menuCommand(int32)
 }
 
 /// A key press or release.

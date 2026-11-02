@@ -87,6 +87,7 @@ func decode(id: int32, kind: int32) -> Event? {
         for line in eventText(id).split(separator: "\n") { paths.append(string(line)) }
         return .filesDropped(paths, Point(float32(winEventX(id)), float32(winEventY(id))))
     case 20: return .colorPicked(eventText(id))
+    case 21: return .menuCommand(winEventCode(id))
     default: return nil
     }
 }

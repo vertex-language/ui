@@ -169,6 +169,10 @@ final class Host {
             if forced == nil { view.Page.SetColorScheme(dark: t == .dark) }
             requestFrame()
             return true
+        case .menuCommand(let id):
+            if let action = menuActions[id] { state.Batch { action() } }
+            requestAllFrames()
+            return true
         default:
             break
         }
@@ -186,8 +190,133 @@ final class Host {
             win.SetCursor(c)
         }
         if view.NeedsRepaint() || view.NeedsAnimation() || viewport.Wanted() { requestFrame() }
+        // What this window's handlers wrote may show in the others.
+        if !secondWindows.isEmpty { requestAllFrames() }
         return true
     }
+
+    func requestAllFrames() {
+        current?.requestFrame()
+        for w in secondWindows { w.host.requestFrame() }
+    }
+}
+
+/// One thing in a menu: what it says, the key that chooses it with Command,
+/// and what it does.
+public struct MenuItem {
+    public var Title: string
+    public var Shortcut: string
+    public var Enabled: bool
+    public var Action: (() -> Void)?
+
+    public init(title: string, shortcut: string = "", enabled: bool = true, action: @escaping () -> Void) {
+        Title = title
+        Shortcut = shortcut
+        Enabled = enabled
+        Action = action
+    }
+
+    init() {
+        Title = ""
+        Shortcut = ""
+        Enabled = true
+        Action = nil
+    }
+
+    /// A line between items.
+    public static var Separator: MenuItem { return MenuItem() }
+}
+
+public struct Menu {
+    public var Title: string
+    public var Items: [MenuItem]
+
+    public init(title: string, items: [MenuItem]) {
+        Title = title
+        Items = items
+    }
+}
+
+// What each menu item does, by the id the system's menu knows it by.
+var menuActions: [int32: () -> Void] = [:]
+var nextMenuId: int32 = 1
+
+@MainActor
+func nativeItems(items: [MenuItem]) -> [window.MenuItem] {
+    var out: [window.MenuItem] = []
+    for i in items {
+        guard let action = i.Action else {
+            out.append(window.MenuItem.separator)
+            continue
+        }
+        let id = nextMenuId
+        nextMenuId += 1
+        menuActions[id] = action
+        out.append(window.MenuItem(title: i.Title, id: id, shortcut: i.Shortcut, enabled: i.Enabled))
+    }
+    return out
+}
+
+/// SetMenus puts menus in the menu bar, after the app's own. They replace
+/// those set before. A handler runs as an element's does: the state it
+/// writes renders once it is done.
+@MainActor
+public func SetMenus(menus: [Menu]) {
+    window.SetMenus(menus.map { window.Menu(title: $0.Title, items: nativeItems($0.Items)) })
+}
+
+/// SetStatusItem puts an item in the system's status bar, or takes it away
+/// with a title of "".
+@MainActor
+public func SetStatusItem(title: string, items: [MenuItem] = []) {
+    window.SetStatusItem(title: title, items: nativeItems(items))
+}
+
+/// A window OpenWindow made.
+@MainActor
+public final class SecondWindow {
+    let host: Host
+    var open = true
+
+    init(host: Host) { self.host = host }
+
+    /// Closes it, as its close button does.
+    public func Close() { open = false; host.requestFrame() }
+    public func SetTitle(title: string) { if open { host.win.SetTitle(title) } }
+    public var IsOpen: bool { return open }
+    /// Its page, as a check or a host would ask.
+    public var Page: web.Page { return host.view.Page }
+}
+
+// The windows other than the first, while they are open.
+var secondWindows: [SecondWindow] = []
+
+/// OpenWindow makes another window with a root of its own. State reaches
+/// both windows: what one writes the other renders. It closes by its close
+/// button or Close, and with the app.
+@MainActor
+public func OpenWindow(title: string, width: float32 = 480, height: float32 = 360, css: string = "",
+                       root: @escaping () -> component.Node) -> SecondWindow? {
+    var options = window.Options()
+    options.MinSize = window.Size(160, 120)
+    guard let win = try? window.Create(title: title, size: window.Size(width, height), options: options) else { return nil }
+    let host = Host(win: win)
+    host.forced = current?.forced
+    host.view.Page.SetColorScheme(dark: current?.forced ?? (win.Theme() == .dark))
+    host.mount(css: css, root)
+    host.requestFrame()
+    let handle = SecondWindow(host: host)
+    secondWindows.append(handle)
+    Task {
+        while handle.open && !quitting, let event = await win.WaitEvent() {
+            if !host.handle(event) { break }
+        }
+        handle.open = false
+        secondWindows.removeAll { $0 === handle }
+        host.mounted?.Unmount()
+        win.Close()
+    }
+    return handle
 }
 
 // Set by Quit, from the UI thread.
@@ -296,9 +425,13 @@ public func SetTitle(title: string) {
 }
 
 /// Quit ends the running app after the event or frame being handled, as
-/// closing its window would.
+/// closing its window would. From a task or a timer, with nothing being
+/// handled, it asks for a frame to end on.
+@MainActor
 public func Quit() {
     quitting = true
+    current?.requestFrame()
+    for w in secondWindows { w.host.requestFrame() }
 }
 
 func ms(a: time.Instant, b: time.Instant) -> int64 {
@@ -328,7 +461,7 @@ public func Run(title: string, width: float32 = 800, height: float32 = 600, css:
     }
     let host = Host(win: win)
     current = host
-    viewport.SetWaker { host.requestFrame() }
+    viewport.SetWaker { host.requestAllFrames() }
     // --snapshot out.png draws a frame and quits; --dark and --light
     // show the app in that appearance, whatever the system's.
     var forced: bool? = nil

@@ -1,0 +1,68 @@
+// check-windows opens real windows: menus chosen through the system's menu
+// bar, and a second window whose page shows the state the first one wrote.
+// It needs a window server.
+package main
+
+import (
+    "time"
+    "ui/app"
+    "ui/state"
+    "ui/window"
+)
+
+var failures = 0
+
+func check(ok: bool, what: string) {
+    if ok {
+        print("ok    \(what)")
+    } else {
+        print("FAIL  \(what)")
+        failures += 1
+    }
+}
+
+var shared = state.Signal(0)
+
+func Root() -> Element {
+    return <p id="main">main {shared.Value}</p>
+}
+
+func Second() -> Element {
+    return <p id="other">other {shared.Value}</p>
+}
+
+@MainActor
+func test() async {
+    var chosen = 0
+    app.SetMenus([app.Menu(title: "File", items: [
+        app.MenuItem(title: "Bump", shortcut: "b") {
+            chosen += 1
+            shared.Value += 1
+        },
+        app.MenuItem.Separator,
+        app.MenuItem(title: "Off", enabled: false) { chosen += 100 },
+    ])])
+    check(window.MenuCount() == 1, "a menu is in the bar (\(window.MenuCount()))")
+    guard let second = app.OpenWindow(title: "Second", root: { <Second /> }) else {
+        check(false, "a second window opens")
+        app.Quit()
+        return
+    }
+    try? await time.Sleep(time.Duration.Milliseconds(300))
+    check(window.ChooseMenuItem(menu: 0, item: 0), "its item can be chosen")
+    try? await time.Sleep(time.Duration.Milliseconds(300))
+    check(chosen == 1, "the item's action ran (\(chosen))")
+    let text = second.Page.QuerySelector("#other")?.InnerText() ?? ""
+    check(text == "other 1", "the second window shows what the menu wrote (\(text))")
+    second.Close()
+    try? await time.Sleep(time.Duration.Milliseconds(300))
+    check(!second.IsOpen, "the second window closes")
+    if failures == 0 { print("ALL WINDOW CHECKS PASSED") } else { print("\(failures) FAILED") }
+    app.Quit()
+}
+
+func main() async -> int32 {
+    Task { await test() }
+    let code = await app.Run(title: "First", width: 200, height: 100) { <Root /> }
+    return failures == 0 ? code : 1
+}

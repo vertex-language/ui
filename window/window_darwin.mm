@@ -1294,6 +1294,101 @@ void winPickColor(const char* color) noexcept {
     }
 }
 
+// What a menu item does: tells a window its id.
+@interface CWMenuTarget : NSObject
+@end
+
+@implementation CWMenuTarget
+- (void)chosen:(NSMenuItem*)item {
+    CWWindow* to = nil;
+    NSWindow* key = [NSApp keyWindow];
+    for (NSNumber* id in [[windows allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
+        CWWindow* w = windows[id];
+        if (to == nil || w.window == key) to = w;
+    }
+    if (to != nil) pushKind(to, EventKind::menuCommand, (int32_t)item.tag, 0, 0);
+}
+@end
+
+static CWMenuTarget* menuTarget = nil;
+static NSStatusItem* statusItem = nil;
+
+// One menu's items from a spec's lines, up to the next "#".
+static NSUInteger readMenu(NSArray<NSString*>* lines, NSUInteger at, NSMenu* menu) {
+    if (menuTarget == nil) menuTarget = [[CWMenuTarget alloc] init];
+    menu.autoenablesItems = NO;
+    while (at < lines.count && ![lines[at] hasPrefix:@"#"]) {
+        NSString* line = lines[at];
+        at++;
+        if ([line isEqualToString:@"-"]) {
+            [menu addItem:[NSMenuItem separatorItem]];
+            continue;
+        }
+        NSArray<NSString*>* parts = [line componentsSeparatedByString:@"\t"];
+        if (parts.count < 4) continue;
+        NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:parts[0] action:@selector(chosen:) keyEquivalent:parts[1]];
+        item.target = menuTarget;
+        item.tag = parts[2].integerValue;
+        item.enabled = parts[3].integerValue != 0;
+        [menu addItem:item];
+    }
+    return at;
+}
+
+void winSetMenus(const char* spec) noexcept {
+    if (!started()) return;
+    @autoreleasepool {
+        NSMenu* bar = [NSApp mainMenu];
+        while (bar.numberOfItems > 1) [bar removeItemAtIndex:1];
+        NSArray<NSString*>* lines = [[NSString stringWithUTF8String:spec ? spec : ""] componentsSeparatedByString:@"\n"];
+        NSUInteger at = 0;
+        while (at < lines.count) {
+            if (![lines[at] hasPrefix:@"#"]) {
+                at++;
+                continue;
+            }
+            NSString* title = [lines[at] substringFromIndex:1];
+            NSMenu* menu = [[NSMenu alloc] initWithTitle:title];
+            at = readMenu(lines, at + 1, menu);
+            NSMenuItem* holder = [[NSMenuItem alloc] initWithTitle:title action:nil keyEquivalent:@""];
+            holder.submenu = menu;
+            [bar addItem:holder];
+        }
+    }
+}
+
+void winSetStatusItem(const char* title, const char* spec) noexcept {
+    if (!started()) return;
+    @autoreleasepool {
+        NSString* text = [NSString stringWithUTF8String:title ? title : ""];
+        if (text.length == 0) {
+            if (statusItem != nil) [[NSStatusBar systemStatusBar] removeStatusItem:statusItem];
+            statusItem = nil;
+            return;
+        }
+        if (statusItem == nil) statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
+        statusItem.button.title = text;
+        NSMenu* menu = [[NSMenu alloc] initWithTitle:text];
+        readMenu([[NSString stringWithUTF8String:spec ? spec : ""] componentsSeparatedByString:@"\n"], 0, menu);
+        statusItem.menu = menu;
+    }
+}
+
+int32_t winMenuCount() noexcept {
+    if (!started()) return 0;
+    return (int32_t)[NSApp mainMenu].numberOfItems - 1;
+}
+
+int32_t winChooseMenuItem(int32_t menu, int32_t item) noexcept {
+    if (!started()) return 0;
+    NSMenu* bar = [NSApp mainMenu];
+    if (menu < 0 || menu + 1 >= bar.numberOfItems) return 0;
+    NSMenu* sub = [bar itemAtIndex:menu + 1].submenu;
+    if (sub == nil || item < 0 || item >= sub.numberOfItems) return 0;
+    [sub performActionForItemAtIndex:item];
+    return 1;
+}
+
 void winSetClipboardText(const char* text) noexcept {
     if (text == NULL)
         return;

@@ -65,6 +65,7 @@ export namespace EventKind {
     constexpr int32_t relativeMotion = 18;  // x, y: how far the pointer moved, in points, while locked
     constexpr int32_t filesDropped = 19;  // x, y: where; text: the paths, a line each
     constexpr int32_t colorPicked = 20;  // text: the color, #rrggbb
+    constexpr int32_t menuCommand = 21;  // code: the item's id
 }
 
 // Modifier bits.
@@ -163,6 +164,18 @@ export int32_t winClipboardText(char* buf, int32_t cap) noexcept;
 export int32_t winPickFiles(int32_t multiple, const char* accept, char* buf, int32_t cap) noexcept;
 export int32_t winPickDate(const char* type, const char* value, char* buf, int32_t cap) noexcept;
 export void winPickColor(const char* color) noexcept;
+
+// The menu bar, after the application's own menu, and the status item in the
+// system's bar ("" title and spec takes it away). A spec is a line for each
+// thing: "#Title" starts a menu, "-" is a separator, and
+// "title<tab>key<tab>id<tab>enabled" an item; choosing one sends menuCommand
+// to the window with the keyboard, or else the first.
+export void winSetMenus(const char* spec) noexcept;
+export void winSetStatusItem(const char* title, const char* spec) noexcept;
+// How many menus there are after the application's own, and chooses an item
+// as a click would: for checks. Answers whether it was there.
+export int32_t winMenuCount() noexcept;
+export int32_t winChooseMenuItem(int32_t menu, int32_t item) noexcept;
 
 // The native objects, for a renderer binding its own swapchain.
 export uint64_t winNativeWindow(int32_t window) noexcept;

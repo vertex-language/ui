@@ -18,8 +18,9 @@ write state; the root renders again once the event is done, and the frame
 after shows it. `--snapshot out.png` on the command line draws the first
 frame into a PNG and quits.
 
-This is the first form: one window. The markup form of the RFC (`<app.Window>`, menus, status
-items) comes after.
+`app.SetMenus` and `app.SetStatusItem` put menus in the menu bar and an item in the status
+bar, and `app.OpenWindow` makes another window with a root of its own. The markup form of the
+RFC (`<app.Window>`, menus, status items) comes after.
 
 From code outside an event -- a task whose data arrived, a timer --
 `app.RequestFrame()` asks for a frame so a change shows (a viewport's

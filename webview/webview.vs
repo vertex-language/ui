@@ -50,6 +50,7 @@ public final class WebView {
         origin = window.Point(0, 0)
         size = window.Size(800, 600)
         Page.Clipboard = SystemClipboard()
+        Page.Bounces = true
         Page.SetViewportSize(draw.Size(size.Width, size.Height))
         // Links lead where they point, and :visited knows where the view
         // has been. A host that handles navigation itself sets its own.
@@ -96,6 +97,13 @@ public final class WebView {
             guard let node = pickingColor else { return .ignored }
             Page.SetControlValue(node, color)
             return .handled
+        }
+        if case .pointerMoved(let p) = event {
+            if p.Kind == .pen {
+                Page.SetMovingPointer(kind: "pen", pressure: p.Pressure, tiltX: p.TiltX, tiltY: p.TiltY)
+            } else {
+                Page.SetMovingPointer(kind: "mouse", pressure: -1, tiltX: 0, tiltY: 0)
+            }
         }
         guard let input = Input(event) else { return .ignored }
         return Page.Handle(input)
