@@ -131,9 +131,9 @@ public final class Node: Renderable, ExpressibleByNilLiteral, ExpressibleByStrin
 }
 
 /// A node as HTML, for a static page: a report, an email.
-public func RenderHTML(_ node: Node) -> string { return node.Html() }
+public func RenderHTML(node: Node) -> string { return node.Html() }
 
-public func renderToString(_ node: Node) -> string { return node.Html() }
+public func renderToString(node: Node) -> string { return node.Html() }
 
 /// What a child of an element may be: an element, text, a number, or an
 /// array or optional of them. A Bool is nothing, so `{flag && …}` reads
@@ -142,7 +142,7 @@ public protocol Renderable {
     func Nodes() -> [Node]
 }
 
-public func Text(_ s: string) -> Node {
+public func Text(s: string) -> Node {
     let n = Node()
     n.isText = true
     n.Text = s
@@ -184,10 +184,10 @@ public typealias Children = () -> Node
 
 public struct CSSValue: ExpressibleByStringLiteral, ExpressibleByIntegerLiteral, ExpressibleByFloatLiteral, ExpressibleByNilLiteral {
     public var raw: string = ""
-    public init(_ value: string) { self.raw = value }
-    public init(_ value: int) { self.raw = "\(value)px" }
-    public init(_ value: float64) { self.raw = "\(value)" }
-    public init(_ value: CSSValue) { self.raw = value.raw }
+    public init(value: string) { self.raw = value }
+    public init(value: int) { self.raw = "\(value)px" }
+    public init(value: float64) { self.raw = "\(value)" }
+    public init(value: CSSValue) { self.raw = value.raw }
     public init(stringLiteral value: string) { self.raw = value }
     public init(integerLiteral value: int) { self.raw = "\(value)px" }
     public init(floatLiteral value: float64) { self.raw = "\(value)" }
@@ -337,7 +337,7 @@ public struct Style {
 
     public func pairs() -> [(string, string)] {
         var out: [(string, string)] = []
-        func add(_ k: string, _ v: CSSValue) {
+        func add(k: string, v: CSSValue) {
             if !v.raw.isEmpty { out.append((k, v.raw)) }
         }
         add("color", color)
@@ -404,11 +404,11 @@ public struct EmptyState { public init() {} }
 /// `{expr}` among an element's children: a region Mount keeps equal to
 /// what expr is, running it again -- and only it -- when a signal it read
 /// changes.
-public func Live<V: Renderable>(_ f: () -> V) -> Node {
+public func Live<V: Renderable>(f: () -> V) -> Node {
     return liveNode({ f().Nodes() })
 }
 
-func liveNode(_ f: () -> [Node]) -> Node {
+func liveNode(f: () -> [Node]) -> Node {
     let n = Node()
     n.live = captured(f)
     return n
@@ -420,7 +420,7 @@ func liveNode(_ f: () -> [Node]) -> Node {
 /// inside the context values given where the call was written. type is
 /// the component's identity: another component in that place next time
 /// is a new one there.
-public func Call(_ type: string, _ f: @escaping () -> Node) -> Node {
+public func Call(type: string, f: @escaping () -> Node) -> Node {
     let n = Node()
     n.fiber = ComponentFiber(type, capturedNode(f))
     return n
@@ -428,7 +428,7 @@ public func Call(_ type: string, _ f: @escaping () -> Node) -> Node {
 
 /// A keyed component's call, `<TabItem key={t.ID} … />`: among its
 /// siblings, its fiber (its state, its elements) goes with its key.
-public func Key<K>(_ key: K, _ type: string, _ f: @escaping () -> Node) -> Node {
+public func Key<K>(key: K, type: string, f: @escaping () -> Node) -> Node {
     let n = Call(type, f)
     n.key = "\(key)"
     return n
@@ -436,20 +436,20 @@ public func Key<K>(_ key: K, _ type: string, _ f: @escaping () -> Node) -> Node 
 
 /// `<Comp ref={el} />`: a ref on a component holds the first element it
 /// renders while it is in the document.
-public func ForwardRef<T>(_ ref: Ref<T>, _ node: Node) -> Node {
+public func ForwardRef<T>(ref: Ref<T>, node: Node) -> Node {
     node.refs.append({ n in ref.current = n as? T })
     return node
 }
 
 /// `<Comp ref={setEl} />`: a setter given the component's first element.
-public func ForwardRef<T>(_ setter: SetState<T?>, _ node: Node) -> Node {
+public func ForwardRef<T>(setter: SetState<T?>, node: Node) -> Node {
     node.refs.append({ n in setter(n as? T) })
     return node
 }
 
 /// `<Comp ref={el in …} />`: called with the component's first element
 /// once it is in the document, and with nil when it goes.
-public func ForwardRef(_ callback: @escaping (HTMLElement?) -> void, _ node: Node) -> Node {
+public func ForwardRef(callback: @escaping (HTMLElement?) -> void, node: Node) -> Node {
     node.refs.append(callback)
     return node
 }
@@ -476,16 +476,16 @@ public enum AttributeKind {
 public struct Attribute {
     public let Kind: AttributeKind
 
-    public init(_ kind: AttributeKind) { Kind = kind }
+    public init(kind: AttributeKind) { Kind = kind }
 
     /// `name="text"`.
-    public static func Static(_ name: string, _ value: string) -> Attribute {
+    public static func Static(name: string, value: string) -> Attribute {
         return Attribute(.text(name, value))
     }
 
     /// `name={value}`, taken once: a Bool is the attribute's presence,
     /// anything else its text.
-    public static func Value<V>(_ name: string, _ value: V) -> Attribute {
+    public static func Value<V>(name: string, value: V) -> Attribute {
         if let b = value as? bool { return Attribute(.flag(name, b)) }
         if let text = attributeText(value) { return Attribute(.text(name, text)) }
         return Attribute(.none)
@@ -494,12 +494,12 @@ public struct Attribute {
     /// `name={expr}`, live: the attribute follows the signals expr reads.
     /// A field is controlled by its handler: `value={draft}
     /// onInput={e in setDraft(e.Value)}`.
-    public static func Live<V>(_ name: string, _ f: () -> V) -> Attribute {
+    public static func Live<V>(name: string, f: () -> V) -> Attribute {
         return Attribute(.liveText(name, { attributeText(f()) }))
     }
 
     /// `onX={…}`: a handler, given the event as the type it is.
-    public static func On<E: dom.Event>(_ event: string, _ type: E.Type, _ handler: (E) -> void) -> Attribute {
+    public static func On<E: dom.Event>(event: string, type: E.Type, handler: (E) -> void) -> Attribute {
         return Attribute(.handler(event, { e in
             if let typed = e as? E { handler(typed) }
         }))
@@ -507,20 +507,20 @@ public struct Attribute {
 
     /// `onXCapture={…}`: a handler called as the event comes down to its
     /// target, before the target's own handlers.
-    public static func OnCapture<E: dom.Event>(_ event: string, _ type: E.Type, _ handler: (E) -> void) -> Attribute {
+    public static func OnCapture<E: dom.Event>(event: string, type: E.Type, handler: (E) -> void) -> Attribute {
         return Attribute(.captureHandler(event, { e in
             if let typed = e as? E { handler(typed) }
         }))
     }
 
     /// `key={k}` on an intrinsic element.
-    public static func Key<V>(_ key: V) -> Attribute {
+    public static func Key<V>(key: V) -> Attribute {
         return Attribute(.key("\(key)"))
     }
 
     /// `ref={el}`: el, a `Ref<HTMLElement>` from useRef, holds the element
     /// while it is in the document.
-    public static func Ref<T>(_ ref: Ref<T>) -> Attribute {
+    public static func Ref<T>(ref: Ref<T>) -> Attribute {
         return Attribute(.ref({ n in
             ref.current = n as? T
         }))
@@ -528,7 +528,7 @@ public struct Attribute {
 
     /// `ref={setEl}`: a state setter is given the element once it is in
     /// the document, and nil when it goes.
-    public static func Ref<T>(_ setter: SetState<T?>) -> Attribute {
+    public static func Ref<T>(setter: SetState<T?>) -> Attribute {
         return Attribute(.ref({ n in
             setter(n as? T)
         }))
@@ -536,26 +536,26 @@ public struct Attribute {
 
     /// `ref={el in …}`: called with the element once it is in the
     /// document, and with nil when it goes.
-    public static func Ref(_ callback: @escaping (HTMLElement?) -> void) -> Attribute {
+    public static func Ref(callback: @escaping (HTMLElement?) -> void) -> Attribute {
         return Attribute(.ref(callback))
     }
 
     /// `{...attrs}`.
-    public static func Spread(_ attrs: [string: string]) -> Attribute {
+    public static func Spread(attrs: [string: string]) -> Attribute {
         return Attribute(.spread(attrs))
     }
 
     /// The package the element's markup is in, where that package has
     /// styles: the element is stamped `data-p="package"`, which scopes
     /// them, and carries the sheet to the page. The compiler adds it.
-    public static func Package(_ sheet: Sheet) -> Attribute {
+    public static func Package(sheet: Sheet) -> Attribute {
         return Attribute(.sheet(sheet))
     }
 }
 
 /// An attribute's text for a value: a Bool is presence ("" or none), a
 /// Style or dictionary of styles is formatted as CSS declarations.
-func attributeText<V>(_ v: V) -> string? {
+func attributeText<V>(v: V) -> string? {
     if let b = v as? bool { return b ? "" : nil }
     if let st = v as? Style {
         let s = st.cssText()
@@ -573,7 +573,7 @@ func attributeText<V>(_ v: V) -> string? {
 }
 
 /// An HTML element.
-public func Element(_ tag: string, _ attributes: [Attribute], _ children: [any Renderable]) -> Node {
+public func Element(tag: string, attributes: [Attribute], children: [any Renderable]) -> Node {
     let n = Node()
     n.Tag = tag
     for a in attributes {
@@ -619,7 +619,7 @@ public func Element(_ tag: string, _ attributes: [Attribute], _ children: [any R
 }
 
 /// `<>…</>`: children with no element around them.
-public func Fragment(_ children: [any Renderable]) -> Node {
+public func Fragment(children: [any Renderable]) -> Node {
     let n = Node()
     for c in children { n.Children += c.Nodes() }
     return n
@@ -642,7 +642,7 @@ public func Profiler(id: string, onRender: ((string, string, float64) -> void)? 
 /// page even where all it makes is another package's component (a
 /// program whose root is a library's window, whose document rules would
 /// otherwise never apply).
-public func Styled(_ sheet: Sheet, _ content: any Renderable) -> Node {
+public func Styled(sheet: Sheet, content: any Renderable) -> Node {
     if let cn = content as? Node, !cn.key.isEmpty {
         cn.sheet = sheet
         return cn
@@ -655,7 +655,7 @@ public func Styled(_ sheet: Sheet, _ content: any Renderable) -> Node {
 
 // MARK: - HTML
 
-func escapeText(_ s: string) -> string {
+func escapeText(s: string) -> string {
     var out = ""
     for ch in s {
         switch ch {
@@ -669,7 +669,7 @@ func escapeText(_ s: string) -> string {
     return out
 }
 
-func booleanAttribute(_ name: string) -> bool {
+func booleanAttribute(name: string) -> bool {
     switch name {
     case "checked", "disabled", "hidden", "autofocus", "readonly", "required", "selected", "multiple", "open":
         return true
@@ -678,7 +678,7 @@ func booleanAttribute(_ name: string) -> bool {
     }
 }
 
-func voidElement(_ tag: string) -> bool {
+func voidElement(tag: string) -> bool {
     switch tag {
     case "input", "br", "img", "hr", "meta", "link", "col", "source", "track", "wbr", "area", "embed":
         return true
@@ -724,7 +724,7 @@ public struct Token {
 
 /// Sheets in cascade order: each after what it imports, and package
 /// main's last, so the program overrides what it builds on.
-func ordered(_ used: [Sheet]) -> [Sheet] {
+func ordered(used: [Sheet]) -> [Sheet] {
     var out: [Sheet] = []
     for s in used { place(s, &out) }
     var rest: [Sheet] = []
@@ -736,7 +736,7 @@ func ordered(_ used: [Sheet]) -> [Sheet] {
 }
 
 
-func place(_ s: Sheet, _ out: inout [Sheet]) {
+func place(s: Sheet, out: inout [Sheet]) {
     for o in out where o === s { return }
     for a in s.After { place(a, &out) }
     out.append(s)

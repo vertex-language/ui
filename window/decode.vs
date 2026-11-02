@@ -9,10 +9,10 @@ package window
 // executor runs everything else meanwhile. A window's descriptor is readable
 // while the window has an event queued, so waiting for an event is this.
 @_silgen_name("vertex_task_wait_fd")
-func waitFd(_ fd: int32, _ events: int32, _ timeoutNanos: int64) async -> int32
+func waitFd(fd: int32, events: int32, timeoutNanos: int64) async -> int32
 
 // eventText is the current event's text.
-func eventText(_ id: int32) -> string {
+func eventText(id: int32) -> string {
     let n = winEventText(id, nil, 0)
     var buf = [CChar](repeating: 0, count: int(n) + 1)
     _ = buf.withUnsafeMutableBufferPointer { bp in
@@ -22,7 +22,7 @@ func eventText(_ id: int32) -> string {
 }
 
 // pointerOf is the current event's pointer.
-func pointerOf(_ id: int32) -> Pointer {
+func pointerOf(id: int32) -> Pointer {
     let flags = winEventFlags(id)
     let kind: PointerKind = (flags & 255) == 1 ? .pen : .mouse
     let clicks = flags >> 8
@@ -35,7 +35,7 @@ func pointerOf(_ id: int32) -> Pointer {
 }
 
 // buttonOf is the current event's button.
-func buttonOf(_ id: int32) -> PointerButton {
+func buttonOf(id: int32) -> PointerButton {
     switch winEventCode(id) {
     case 0: return .primary
     case 1: return .secondary
@@ -45,7 +45,7 @@ func buttonOf(_ id: int32) -> PointerButton {
 }
 
 // keyOf is the current event's key.
-func keyOf(_ id: int32) -> KeyEvent {
+func keyOf(id: int32) -> KeyEvent {
     return KeyEvent(
         Code: KeyCode(rawValue: winEventCode(id)) ?? .unknown,
         Key: eventText(id),
@@ -55,7 +55,7 @@ func keyOf(_ id: int32) -> KeyEvent {
 
 // decode turns the event winNext just moved into the window's current
 // slot into an Event, or nil for a kind this does not know.
-func decode(_ id: int32, _ kind: int32) -> Event? {
+func decode(id: int32, kind: int32) -> Event? {
     switch kind {
     case 1: return .closeRequested
     case 2: return .focusChanged(winEventCode(id) == 1)

@@ -13,7 +13,7 @@ import (
 
 var failures = 0
 
-func check(_ ok: bool, _ what: string) {
+func check(ok: bool, what: string) {
     if ok {
         print("ok    \(what)")
     } else {
@@ -23,7 +23,7 @@ func check(_ ok: bool, _ what: string) {
 }
 
 // Geometry: points, pixels, and the ratio between them.
-func geometry(_ w: borrowing window.Window) {
+func geometry(w: borrowing window.Window) {
     let size = w.Size()
     check(size.Width == 480 && size.Height == 320, "the content area is the size asked for")
     let scale = w.ScaleFactor()
@@ -34,7 +34,7 @@ func geometry(_ w: borrowing window.Window) {
 }
 
 // A frame is delivered once per request, through WaitEvent.
-func frames(_ w: borrowing window.Window) async {
+func frames(w: borrowing window.Window) async {
     var got = 0
     var last: float64 = 0
     var increasing = true
@@ -54,7 +54,7 @@ func frames(_ w: borrowing window.Window) async {
 }
 
 // Presenting pixels: the right number is accepted, the wrong one refused.
-func present(_ w: borrowing window.Window) {
+func present(w: borrowing window.Window) {
     let px = w.PixelSize()
     var pixels = [uint8](repeating: 0, count: int(px.Width) * int(px.Height) * 4)
     var i = 0
@@ -88,7 +88,7 @@ func present(_ w: borrowing window.Window) {
 }
 
 // Changing the window is reported back as events.
-func resize(_ w: borrowing window.Window) async {
+func resize(w: borrowing window.Window) async {
     w.SetSize(window.Size(640, 400))
     var resized = false
     while let e = w.PollEvent() {
@@ -101,7 +101,7 @@ func resize(_ w: borrowing window.Window) async {
 }
 
 // A task keeps running while another waits on the window.
-func concurrency(_ w: borrowing window.Window) async {
+func concurrency(w: borrowing window.Window) async {
     let ticker = Task { () async -> int in
         var ticks = 0
         while ticks < 5 {

@@ -51,7 +51,7 @@ final class Gradient: viewport.Source {
         super.init()
     }
 
-    override func Attached(_ handle: viewport.Handle) {
+    override func Attached(handle: viewport.Handle) {
         self.handle = handle
         handle.Cursor = "crosshair"
     }
@@ -60,18 +60,18 @@ final class Gradient: viewport.Source {
         handle = nil
     }
 
-    override func PointerDown(_ e: dom.PointerEvent, x: float32, y: float32) {
+    override func PointerDown(e: dom.PointerEvent, x: float32, y: float32) {
         markX = x
         markY = y
         handle?.Invalidate()
     }
 
-    func setHue(_ h: float32) {
+    func setHue(h: float32) {
         hue = h
         handle?.Invalidate()
     }
 
-    override func DrawTexture(_ f: viewport.Frame, device: gpu.Device) -> gpu.Texture? {
+    override func DrawTexture(f: viewport.Frame, device: gpu.Device) -> gpu.Texture? {
         if !pipelineTried {
             pipelineTried = true
             do {
@@ -98,7 +98,7 @@ final class Gradient: viewport.Source {
         return t
     }
 
-    override func Draw(_ f: viewport.Frame) -> [uint8] {
+    override func Draw(f: viewport.Frame) -> [uint8] {
         let w = f.Width
         let h = f.Height
         var px = [uint8](repeating: 255, count: w * h * 4)

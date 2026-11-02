@@ -4,7 +4,7 @@ package main
 
 import "ui/window"
 
-func describe(_ e: window.Event) -> string {
+func describe(e: window.Event) -> string {
     switch e {
     case .closeRequested: return "close requested"
     case .focusChanged(let focused): return focused ? "focused" : "unfocused"

@@ -37,7 +37,7 @@ struct RemotePage {
 }
 
 /// Gets a URL, following up to five redirects.
-func get(_ url: string) async -> Loaded {
+func get(url: string) async -> Loaded {
     var current = url
     var hops = 0
     while true {
@@ -56,7 +56,7 @@ func get(_ url: string) async -> Loaded {
 }
 
 /// Gets many URLs at once, each once.
-func getAll(_ urls: [string]) async -> [string: Loaded] {
+func getAll(urls: [string]) async -> [string: Loaded] {
     var out: [string: Loaded] = [:]
     await withTaskGroup(of: Loaded.self) { group in
         var seen = Set<string>()
@@ -74,7 +74,7 @@ func getAll(_ urls: [string]) async -> [string: Loaded] {
 /// Fetches a page and the stylesheets and images it names: the page's
 /// <link rel=stylesheet> and <img src>, then what those stylesheets
 /// @import and url() in turn.
-func fetchPage(_ url: string) async -> RemotePage {
+func fetchPage(url: string) async -> RemotePage {
     let start = time.Instant.Now()
     let page = await get(url)
     var remote = RemotePage(url: page.url, page: page)
@@ -146,7 +146,7 @@ func fetchPage(_ url: string) async -> RemotePage {
 }
 
 /// The URLs a stylesheet names: @import targets and url() values.
-func cssReferences(_ text: string) -> [(url: string, isImport: bool)] {
+func cssReferences(text: string) -> [(url: string, isImport: bool)] {
     var out: [(url: string, isImport: bool)] = []
     let sheet = css.Parse(text)
     for at in sheet.AtRules where at.Name == "import" {
@@ -171,7 +171,7 @@ func cssReferences(_ text: string) -> [(url: string, isImport: bool)] {
     return out
 }
 
-func importTarget(_ params: string) -> string {
+func importTarget(params: string) -> string {
     let b = [uint8](params.utf8)
     var i = 0
     while i < b.count && b[i] == 32 { i += 1 }
@@ -183,14 +183,14 @@ func importTarget(_ params: string) -> string {
 }
 
 /// Whether a URL names a WOFF2 font, by its extension.
-func isWoff2(_ u: string) -> bool {
+func isWoff2(u: string) -> bool {
     var path = u
     if let q = path.firstIndex(of: "?") { path = string(path[..<q]) }
     return path.lowercased().hasSuffix(".woff2")
 }
 
 /// Whether a URL names a font file, by its extension.
-func isFont(_ u: string) -> bool {
+func isFont(u: string) -> bool {
     var path = u
     if let q = path.firstIndex(of: "?") { path = string(path[..<q]) }
     let lower = path.lowercased()
@@ -244,7 +244,7 @@ public struct LoadReport {
 /// The report of a fetched page.
 /// undecoded is the images the page couldn't decode (Page.LoadImages):
 /// the report doesn't decode them again to find out.
-func report(_ r: RemotePage, undecoded: [string] = []) -> LoadReport {
+func report(r: RemotePage, undecoded: [string] = []) -> LoadReport {
     var rep = LoadReport(URL: r.url, Status: r.page.status, ContentType: r.page.contentType, Error: r.page.error,
                          Bytes: r.page.body?.count ?? 0, Resources: r.resources.count, Milliseconds: int(r.elapsed * 1000),
                          Stylesheets: r.stylesheets.count, StylesheetsLoaded: 0, Images: r.images.count, ImagesDecoded: 0,
@@ -275,7 +275,7 @@ func report(_ r: RemotePage, undecoded: [string] = []) -> LoadReport {
 
 /// A fetched page as an archive: the page and every resource, as they
 /// came back.
-func archive(_ r: RemotePage) -> fetch.Archive {
+func archive(r: RemotePage) -> fetch.Archive {
     var a = fetch.Archive(page: r.url)
     a.Add(fetch.ArchiveEntry(URL: r.url, Status: r.page.status, ContentType: r.page.contentType, Body: r.page.body ?? []))
     for (u, l) in r.resources {

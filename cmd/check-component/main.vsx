@@ -16,7 +16,7 @@ import (
 
 var failures = 0
 
-func check(_ ok: bool, _ what: string) {
+func check(ok: bool, what: string) {
     if ok {
         print("ok    \(what)")
     } else {
@@ -102,7 +102,7 @@ func Ticker() -> Element {
 }
 
 @MainActor
-func snapshot(_ page: web.Page, _ name: string) {
+func snapshot(page: web.Page, name: string) {
     let args = CommandLine.arguments
     if args.count < 2 { return }
     let path = args[1].hasSuffix("/") ? args[1] + name : args[1] + "/" + name
@@ -113,7 +113,7 @@ func snapshot(_ page: web.Page, _ name: string) {
 
 /// A point the page hit-tests to the element or something inside it.
 @MainActor
-func pointOn(_ page: web.Page, _ n: html.Node) -> draw.Point? {
+func pointOn(page: web.Page, n: html.Node) -> draw.Point? {
     var y: float32 = 1
     while y < 320 {
         var x: float32 = 1
@@ -128,7 +128,7 @@ func pointOn(_ page: web.Page, _ n: html.Node) -> draw.Point? {
 }
 
 @MainActor
-func click(_ page: web.Page, _ selector: string) {
+func click(page: web.Page, selector: string) {
     guard let n = page.QuerySelector(selector), let p = pointOn(page, n) else {
         check(false, "\(selector) is on the page")
         return
@@ -142,7 +142,7 @@ func click(_ page: web.Page, _ selector: string) {
 // Lists and optionals as children: Array's and Optional's Renderable
 // conformances are specialized in this module, from component's
 // interface (they once crashed vsc: their bodies weren't in it).
-func Names(_ names: [string]) -> Element {
+func Names(names: [string]) -> Element {
     return <ul>{names.map { n in <li>{n}</li> }}{names.isEmpty ? <li>none</li> : nil}</ul>
 }
 

@@ -110,7 +110,7 @@ public final class Accelerator {
     /// viewports that want a frame are drawn. Answers whether anything
     /// was shown.
     @discardableResult
-    public func Present(_ page: web.Page, pagePixels: [uint8], repainted: bool, scale: float32, time: float64) -> bool {
+    public func Present(page: web.Page, pagePixels: [uint8], repainted: bool, scale: float32, time: float64) -> bool {
         if repainted {
             if pagePixels.count < width * height * 4 { return false }
             pagePixels.withUnsafeBytes { b in
@@ -160,7 +160,7 @@ public final class Accelerator {
 
     /// What the page paints over the viewports' boxes, on a transparent
     /// ground, as one texture over the scene.
-    func buildOverlay(_ page: web.Page, scale: float32) {
+    func buildOverlay(page: web.Page, scale: float32) {
         let n = width * height * 4
         if overlayPixels.count != n { overlayPixels = [uint8](repeating: 0, count: n) }
         hasOverlay = false
@@ -190,7 +190,7 @@ public final class Accelerator {
     /// between uploading the page and showing it; a test calls it on a
     /// texture of its own.
     @discardableResult
-    public func Draw(_ page: web.Page, into target: gpu.Texture, width: int, height: int, scale: float32, time: float64, all: bool) -> bool {
+    public func Draw(page: web.Page, into target: gpu.Texture, width: int, height: int, scale: float32, time: float64, all: bool) -> bool {
         let scroll = page.ScrollOffset()
         var drew = false
         for e in entries {
@@ -226,7 +226,7 @@ public final class Accelerator {
         return drew
     }
 
-    func drawTexture(_ t: gpu.Texture, into target: gpu.Texture, x: int, y: int, w: int, h: int, clip: (int, int, int, int)) {
+    func drawTexture(t: gpu.Texture, into target: gpu.Texture, x: int, y: int, w: int, h: int, clip: (int, int, int, int)) {
         if !copyTried {
             copyTried = true
             do {

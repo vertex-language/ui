@@ -25,7 +25,7 @@ public struct Context<T> {
     let fallback: T
 
     /// A context, and what reading it outside any Provider gives.
-    public init(_ fallback: T) {
+    public init(fallback: T) {
         key = newContextKey()
         self.fallback = fallback
     }
@@ -43,15 +43,15 @@ public struct Context<T> {
     }
 }
 
-public func createContext<T>(_ fallback: T) -> Context<T> {
+public func createContext<T>(fallback: T) -> Context<T> {
     return Context<T>(fallback)
 }
 
-public func use<T>(_ ctx: Context<T>) -> T {
+public func use<T>(ctx: Context<T>) -> T {
     return ctx.Value
 }
 
-public func useContext<T>(_ ctx: Context<T>) -> T {
+public func useContext<T>(ctx: Context<T>) -> T {
     return ctx.Value
 }
 
@@ -79,7 +79,7 @@ func newContextKey() -> int {
     return contextKeys
 }
 
-func providing(_ key: int, _ value: Any, _ children: Children) -> Node {
+func providing(key: int, value: Any, children: Children) -> Node {
     let prev = frames
     frames = Frame(key: key, value: value, next: prev)
     let n = children()
@@ -87,7 +87,7 @@ func providing(_ key: int, _ value: Any, _ children: Children) -> Node {
     return n
 }
 
-func provided(_ key: int) -> Any? {
+func provided(key: int) -> Any? {
     var f = frames
     while let x = f {
         if x.key == key { return x.value }
@@ -97,7 +97,7 @@ func provided(_ key: int) -> Any? {
 }
 
 /// f, run inside the values given where it was made.
-func captured(_ f: () -> [Node]) -> () -> [Node] {
+func captured(f: () -> [Node]) -> () -> [Node] {
     let at = frames
     if at == nil { return f }
     return {
@@ -109,7 +109,7 @@ func captured(_ f: () -> [Node]) -> () -> [Node] {
     }
 }
 
-func capturedNode(_ f: () -> Node) -> () -> Node {
+func capturedNode(f: () -> Node) -> () -> Node {
     let at = frames
     if at == nil { return f }
     return {

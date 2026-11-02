@@ -24,7 +24,7 @@ enum InstKind {
     case region
 }
 
-func kindOf(_ n: Node) -> InstKind {
+func kindOf(n: Node) -> InstKind {
     if n.isText { return .text }
     if n.fiber != nil { return .fiber }
     if n.live != nil { return .region }
@@ -108,7 +108,7 @@ public final class Mounted {
     /// What next becomes among old, in parent before end (nil: at its
     /// end): old reused where it matches, made where nothing does, the rest
     /// ended; then put in next's order.
-    func reconcile(_ old: [Inst], _ next: [Node], in parent: html.Node, end: html.Node?) -> [Inst] {
+    func reconcile(old: [Inst], next: [Node], in parent: html.Node, end: html.Node?) -> [Inst] {
         buildDepth += 1
         var taken = [bool](repeating: false, count: old.count)
         var match: [int] = []
@@ -169,14 +169,14 @@ public final class Mounted {
         return out
     }
 
-    func compatible(_ inst: Inst, _ n: Node) -> bool {
+    func compatible(inst: Inst, n: Node) -> bool {
         if inst.kind != kindOf(n) { return false }
         if inst.kind == .element { return inst.tag == n.Tag }
         if inst.kind == .fiber, let a = inst.fiber, let b = n.fiber { return a.type == b.type }
         return true
     }
 
-    func move(_ inst: Inst, in parent: html.Node, before: html.Node?) {
+    func move(inst: Inst, in parent: html.Node, before: html.Node?) {
         if let d = inst.dom {
             doc.InsertBefore(parent, d, before)
             return
@@ -187,7 +187,7 @@ public final class Mounted {
 
     // MARK: - Making
 
-    func make(_ n: Node, into parent: html.Node, before: html.Node?) -> Inst {
+    func make(n: Node, into parent: html.Node, before: html.Node?) -> Inst {
         if let s = n.sheet { note(s) }
         let inst = Inst(kind: kindOf(n), key: n.key)
         switch inst.kind {
@@ -240,7 +240,7 @@ public final class Mounted {
         return inst
     }
 
-    func markers(_ inst: Inst, _ parent: html.Node, _ before: html.Node?) {
+    func markers(inst: Inst, parent: html.Node, before: html.Node?) {
         let s = doc.CreateTextNode("")
         let e = doc.CreateTextNode("")
         doc.InsertBefore(parent, s, before)
@@ -252,7 +252,7 @@ public final class Mounted {
     // MARK: - Patching
 
     /// Applies n to inst, which it is compatible with.
-    func patch(_ inst: Inst, _ n: Node) {
+    func patch(inst: Inst, n: Node) {
         if let s = n.sheet { note(s) }
         switch inst.kind {
         case .text:
@@ -281,7 +281,7 @@ public final class Mounted {
     /// An element's attributes as n gives them: the static ones set, the
     /// ones the last description set and this one does not removed, and
     /// the live ones bound again.
-    func applyAttributes(_ inst: Inst, _ n: Node, _ el: html.Node) {
+    func applyAttributes(inst: Inst, n: Node, el: html.Node) {
         var hasLiveClass = false
         var hasLiveStyle = false
         var names: [string] = []
@@ -309,7 +309,7 @@ public final class Mounted {
 
     /// The element's handlers as n gives them: one listener per event,
     /// added once, calling whichever handlers the last description gave.
-    func listen(_ inst: Inst, _ n: Node, _ el: html.Node) {
+    func listen(inst: Inst, n: Node, el: html.Node) {
         inst.handlers = n.handlers
         inst.captureHandlers = n.captureHandlers
         for (event, _) in n.handlers where !inst.listening.contains(event) {
@@ -334,7 +334,7 @@ public final class Mounted {
 
     /// Renders a component and applies what it gives to its range; its
     /// effects wait for the nodes to be in the document.
-    func renderFiber(_ inst: Inst) {
+    func renderFiber(inst: Inst) {
         guard let fiber = inst.fiber, !fiber.unmounted, let e = inst.end, let p = e.Parent else { return }
         Updates += 1
         let nodes = fiber.render().Nodes()
@@ -347,7 +347,7 @@ public final class Mounted {
     /// A live region's binding, made again for its expression: it runs it,
     /// and again when a signal it read changes, and applies the nodes it
     /// gives to its range.
-    func bindRegion(_ inst: Inst) {
+    func bindRegion(inst: Inst) {
         inst.binding.Dispose()
         guard let f = inst.live else { return }
         state.WithOwner(inst.binding) {
@@ -367,7 +367,7 @@ public final class Mounted {
     /// A fiber's effects from the render just made, run once its nodes
     /// are in the document and its refs are given: after the outermost
     /// build ends, a child's before its parent's.
-    func queueEffects(_ fiber: ComponentFiber) {
+    func queueEffects(fiber: ComponentFiber) {
         let effs = fiber.effects
         fiber.effects = []
         if effs.isEmpty { return }
@@ -385,7 +385,7 @@ public final class Mounted {
     /// Ends what inst made: its bindings, its component, its refs; and,
     /// where detach, takes its nodes out (an element's children go with
     /// it).
-    func unmount(_ inst: Inst, detach: bool) {
+    func unmount(inst: Inst, detach: bool) {
         let ranged = inst.dom == nil
         for c in inst.children { unmount(c, detach: ranged && detach) }
         inst.children = []
@@ -408,7 +408,7 @@ public final class Mounted {
 
     /// Runs body as this root's code: what it calls Focus on is focused
     /// in this root's page.
-    func hosting(_ body: () -> void) {
+    func hosting(body: () -> void) {
         let prev = host
         host = self
         body()
@@ -416,14 +416,14 @@ public final class Mounted {
     }
 
     /// A binding: an effect owned by what is being made, counted.
-    func bind(_ f: () -> void) {
+    func bind(f: () -> void) {
         _ = state.Effect {
             self.Updates += 1
             f()
         }
     }
 
-    func set(_ el: html.Node, _ name: string, _ value: string?) {
+    func set(el: html.Node, name: string, value: string?) {
         if let v = value {
             doc.SetAttribute(el, name, v)
         } else {
@@ -432,7 +432,7 @@ public final class Mounted {
     }
 
     /// The nodes strictly between two markers.
-    func between(_ start: html.Node, _ end: html.Node) -> [html.Node] {
+    func between(start: html.Node, end: html.Node) -> [html.Node] {
         var out: [html.Node] = []
         var c = start.NextSibling()
         while let n = c, n !== end {
@@ -444,7 +444,7 @@ public final class Mounted {
 
     // MARK: - Styles
 
-    func note(_ s: Sheet) {
+    func note(s: Sheet) {
         for u in used where u === s { return }
         used.append(s)
     }
@@ -461,7 +461,7 @@ public final class Mounted {
 }
 
 /// The first element an Inst made: itself, or the first inside its range.
-func firstElement(_ inst: Inst) -> html.Node? {
+func firstElement(inst: Inst) -> html.Node? {
     if let d = inst.dom { return d.Kind == html.NodeKind.element ? d : nil }
     for c in inst.children {
         if let e = firstElement(c) { return e }
@@ -469,7 +469,7 @@ func firstElement(_ inst: Inst) -> html.Node? {
     return nil
 }
 
-func sameNode(_ a: html.Node?, _ b: html.Node?) -> bool {
+func sameNode(a: html.Node?, b: html.Node?) -> bool {
     if let x = a, let y = b { return x === y }
     return a == nil && b == nil
 }
@@ -483,7 +483,7 @@ func sameNode(_ a: html.Node?, _ b: html.Node?) -> bool {
 /// focus, where given, is how Focus moves the page's focus
 /// (web.Page.Focus); measure, how Bounds finds where an element is
 /// (web.Page.BoundsOf).
-public func Mount(_ root: () -> Node, into doc: dom.Document, at parent: html.Node, styles: (([string]) -> void)? = nil, focus: ((html.Node?) -> void)? = nil,
+public func Mount(root: () -> Node, into doc: dom.Document, at parent: html.Node, styles: (([string]) -> void)? = nil, focus: ((html.Node?) -> void)? = nil,
                   measure: ((html.Node) -> draw.Rect?)? = nil) -> Mounted {
     let m = Mounted(doc: doc, parent: parent, styles: styles, focus: focus, measure: measure)
     lastMounted = m
@@ -530,11 +530,11 @@ func runMounted() {
 /// Moves the page's focus to node -- a field a ref holds -- or, given
 /// nil, takes it away. Called from a component's code: an effect, a
 /// handler; from a task, it is the last mounted root's page.
-public func Focus(_ node: html.Node?) {
+public func Focus(node: html.Node?) {
     if let h = host ?? lastMounted, let f = h.focus { f(node) }
 }
 
-public func Focus<T>(_ ref: Ref<T>) {
+public func Focus<T>(ref: Ref<T>) {
     if let n = ref.current as? html.Node { Focus(n) }
 }
 

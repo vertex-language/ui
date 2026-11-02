@@ -30,7 +30,7 @@ public final class ComponentFiber {
     /// Whether it is out of the document: its setters render nothing.
     var unmounted = false
 
-    init(_ type: string, _ renderFn: () -> Node) {
+    init(type: string, renderFn: () -> Node) {
         self.type = type
         self.renderFn = renderFn
     }
@@ -103,7 +103,7 @@ func activeFiber() -> ComponentFiber? {
     return currentFiber
 }
 
-func setActiveFiber(_ f: ComponentFiber?) -> ComponentFiber? {
+func setActiveFiber(f: ComponentFiber?) -> ComponentFiber? {
     let prev = currentFiber
     currentFiber = f
     return prev
@@ -116,19 +116,19 @@ public final class StateCell<T> {
     public internal(set) var value: T
     let fiber: ComponentFiber?
 
-    init(_ initial: T, _ fiber: ComponentFiber?) {
+    init(initial: T, fiber: ComponentFiber?) {
         self.value = initial
         self.fiber = fiber
     }
 
     /// Sets the value; one equal to what it holds renders nothing.
-    public func set(_ next: T) {
+    public func set(next: T) {
         let same = sameValue(value, next)
         value = next
         if !same, let f = fiber { f.schedule() }
     }
 
-    public func update(_ fn: (T) -> T) {
+    public func update(fn: (T) -> T) {
         set(fn(value))
     }
 }
@@ -138,15 +138,15 @@ public final class StateCell<T> {
 public struct SetState<T> {
     let cell: StateCell<T>
 
-    public init(_ cell: StateCell<T>) {
+    public init(cell: StateCell<T>) {
         self.cell = cell
     }
 
-    public func callAsFunction(_ next: T) {
+    public func callAsFunction(next: T) {
         cell.set(next)
     }
 
-    public func callAsFunction(_ fn: (T) -> T) {
+    public func callAsFunction(fn: (T) -> T) {
         cell.update(fn)
     }
 }
@@ -154,7 +154,7 @@ public struct SetState<T> {
 /// Whether two values are the same, where their type says what that is:
 /// the numbers, strings and Booleans, and arrays of them. Any other type
 /// is never the same, so setting it always renders.
-func sameValue<T>(_ a: T, _ b: T) -> bool {
+func sameValue<T>(a: T, b: T) -> bool {
     if let x = a as? int, let y = b as? int { return x == y }
     if let x = a as? string, let y = b as? string { return x == y }
     if let x = a as? bool, let y = b as? bool { return x == y }
@@ -169,7 +169,7 @@ func sameValue<T>(_ a: T, _ b: T) -> bool {
 /// A component's state, kept between its renders:
 ///
 ///     let (count, setCount) = useState(0)
-public func useState<T>(_ initial: T) -> (T, SetState<T>) {
+public func useState<T>(initial: T) -> (T, SetState<T>) {
     guard let fiber = activeFiber() else {
         let cell = StateCell<T>(initial, nil)
         return (cell.value, SetState<T>(cell))
@@ -185,7 +185,7 @@ public func useState<T>(_ initial: T) -> (T, SetState<T>) {
 }
 
 /// useState whose first value is computed, once.
-public func useState<T>(_ initial: () -> T) -> (T, SetState<T>) {
+public func useState<T>(initial: () -> T) -> (T, SetState<T>) {
     if let fiber = activeFiber(), fiber.hookIndex < fiber.hooks.count, let cell = fiber.hooks[fiber.hookIndex] as? StateCell<T> {
         fiber.hookIndex += 1
         return (cell.value, SetState<T>(cell))
@@ -194,13 +194,13 @@ public func useState<T>(_ initial: () -> T) -> (T, SetState<T>) {
 }
 
 /// State changed through a reducer: `dispatch(.increment(by: 5))`.
-public func useReducer<S, A>(_ reducer: @escaping (S, A) -> S, _ initial: S) -> (S, (A) -> void) {
+public func useReducer<S, A>(reducer: @escaping (S, A) -> S, initial: S) -> (S, (A) -> void) {
     let (value, set) = useState(initial)
     let cell = set.cell
     return (value, { action in cell.set(reducer(cell.value, action)) })
 }
 
-public func useReducer<S, A>(_ reducer: @escaping (S, A) -> S, initialState: S) -> (S, (A) -> void) {
+public func useReducer<S, A>(reducer: @escaping (S, A) -> S, initialState: S) -> (S, (A) -> void) {
     return useReducer(reducer, initialState)
 }
 
@@ -214,12 +214,12 @@ public func useReducer<S, A>(_ reducer: @escaping (S, A) -> S, initialState: S) 
 public final class Ref<T> {
     public var current: T?
 
-    public init(_ current: T? = nil) {
+    public init(current: T? = nil) {
         self.current = current
     }
 }
 
-public func useRef<T>(_ initial: T? = nil) -> Ref<T> {
+public func useRef<T>(initial: T? = nil) -> Ref<T> {
     guard let fiber = activeFiber() else { return Ref<T>(initial) }
     let i = fiber.next()
     if i < fiber.hooks.count, let r = fiber.hooks[i] as? Ref<T> { return r }
@@ -240,7 +240,7 @@ final class EffectSlot {
     var cleanup: (() -> void)? = nil
     let owner = state.Owner()
 
-    init(_ deps: [any Equatable]?) {
+    init(deps: [any Equatable]?) {
         self.deps = deps
     }
 
@@ -258,7 +258,7 @@ final class EffectSlot {
 /// differ from the last (every render where deps is nil).
 ///
 ///     useEffect({ Focus(field) }, [])
-public func useEffect(_ effect: @escaping () -> void, _ deps: [any Equatable]? = nil) {
+public func useEffect(effect: @escaping () -> void, deps: [any Equatable]? = nil) {
     scheduleEffect(deps, { slot in effect() })
 }
 
@@ -269,11 +269,11 @@ public func useEffect(_ effect: @escaping () -> void, _ deps: [any Equatable]? =
 ///         let t = startTimer()
 ///         return { t.Cancel() }
 ///     }, [])
-public func useEffect(_ effect: @escaping () -> (() -> void), _ deps: [any Equatable]? = nil) {
+public func useEffect(effect: @escaping () -> (() -> void), deps: [any Equatable]? = nil) {
     scheduleEffect(deps, { slot in slot.cleanup = effect() })
 }
 
-func scheduleEffect(_ deps: [any Equatable]?, _ run: @escaping (EffectSlot) -> void) {
+func scheduleEffect(deps: [any Equatable]?, run: @escaping (EffectSlot) -> void) {
     guard let fiber = activeFiber() else {
         run(EffectSlot(deps))
         return
@@ -299,11 +299,11 @@ func scheduleEffect(_ deps: [any Equatable]?, _ run: @escaping (EffectSlot) -> v
     })
 }
 
-public func useLayoutEffect(_ effect: @escaping () -> void, _ deps: [any Equatable]? = nil) {
+public func useLayoutEffect(effect: @escaping () -> void, deps: [any Equatable]? = nil) {
     useEffect(effect, deps)
 }
 
-public func useInsertionEffect(_ effect: @escaping () -> void, _ deps: [any Equatable]? = nil) {
+public func useInsertionEffect(effect: @escaping () -> void, deps: [any Equatable]? = nil) {
     useEffect(effect, deps)
 }
 
@@ -313,7 +313,7 @@ final class MemoSlot<T> {
     var value: T
     var deps: [any Equatable]?
 
-    init(_ value: T, _ deps: [any Equatable]?) {
+    init(value: T, deps: [any Equatable]?) {
         self.value = value
         self.deps = deps
     }
@@ -321,7 +321,7 @@ final class MemoSlot<T> {
 
 /// compute's value, computed again only when deps differ from the last
 /// render's (every render where deps is nil).
-public func useMemo<T>(_ compute: () -> T, _ deps: [any Equatable]? = nil) -> T {
+public func useMemo<T>(compute: () -> T, deps: [any Equatable]? = nil) -> T {
     guard let fiber = activeFiber() else { return compute() }
     let i = fiber.next()
     if i < fiber.hooks.count, let slot = fiber.hooks[i] as? MemoSlot<T> {
@@ -336,7 +336,7 @@ public func useMemo<T>(_ compute: () -> T, _ deps: [any Equatable]? = nil) -> T 
     return slot.value
 }
 
-public func useCallback<F>(_ callback: F, _ deps: [any Equatable]? = nil) -> F {
+public func useCallback<F>(callback: F, deps: [any Equatable]? = nil) -> F {
     return useMemo({ callback }, deps)
 }
 
@@ -364,15 +364,15 @@ public func useTransition() -> (bool, (@escaping () -> void) -> void) {
     return (false, { scope in scope() })
 }
 
-public func startTransition(_ scope: () -> void) {
+public func startTransition(scope: () -> void) {
     scope()
 }
 
-public func useDeferredValue<T>(_ value: T) -> T {
+public func useDeferredValue<T>(value: T) -> T {
     return value
 }
 
-func areDepsEqual(_ a: [any Equatable], _ b: [any Equatable]) -> bool {
+func areDepsEqual(a: [any Equatable], b: [any Equatable]) -> bool {
     if a.count != b.count { return false }
     var i = 0
     while i < a.count {
@@ -382,7 +382,7 @@ func areDepsEqual(_ a: [any Equatable], _ b: [any Equatable]) -> bool {
     return true
 }
 
-func isEqualAny(_ a: Any, _ b: Any) -> bool {
+func isEqualAny(a: Any, b: Any) -> bool {
     if let x = a as? int, let y = b as? int { return x == y }
     if let x = a as? string, let y = b as? string { return x == y }
     if let x = a as? bool, let y = b as? bool { return x == y }

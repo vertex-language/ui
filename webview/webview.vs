@@ -69,7 +69,7 @@ public final class WebView {
     /// Takes a window event: pointer events inside the view's bounds,
     /// scrolling, and keys while something in the page has focus are
     /// handled; the rest is ignored and left to the host.
-    public func Handle(_ event: window.Event) -> web.EventResult {
+    public func Handle(event: window.Event) -> web.EventResult {
         if case .modifiersChanged(let m) = event {
             Page.SetModifiers(pageModifiers(m))
             return .ignored
@@ -80,7 +80,7 @@ public final class WebView {
 
     /// The page's input for a window event, in the page's coordinates;
     /// nil for events a page doesn't take.
-    public func Input(_ event: window.Event) -> web.Input? {
+    public func Input(event: window.Event) -> web.Input? {
         switch event {
         case .pointerMoved(let p):
             return .pointerMoved(local(p.Position))
@@ -108,11 +108,11 @@ public final class WebView {
     }
 
     /// The element under a point in the window, or nil.
-    public func ElementAt(_ p: window.Point) -> html.Node? {
+    public func ElementAt(p: window.Point) -> html.Node? {
         return Page.ElementAt(local(p))
     }
 
-    func local(_ p: window.Point) -> draw.Point {
+    func local(p: window.Point) -> draw.Point {
         return draw.Point(p.X - origin.X, p.Y - origin.Y)
     }
 
@@ -132,7 +132,7 @@ public final class WebView {
 }
 
 /// The window cursor that shows a page's cursor.
-public func WindowCursor(_ c: web.Cursor) -> window.Cursor {
+public func WindowCursor(c: web.Cursor) -> window.Cursor {
     switch c {
     case .default: return .arrow
     case .none: return .hidden
@@ -165,11 +165,11 @@ public func WindowCursor(_ c: web.Cursor) -> window.Cursor {
     }
 }
 
-func pageModifiers(_ m: window.Modifiers) -> web.Modifiers {
+func pageModifiers(m: window.Modifiers) -> web.Modifiers {
     return web.Modifiers(shift: m.Shift, control: m.Control, alt: m.Alt, meta: m.Meta)
 }
 
-func pageButton(_ b: window.PointerButton) -> web.PointerButton {
+func pageButton(b: window.PointerButton) -> web.PointerButton {
     switch b {
     case .primary: return .primary
     case .secondary: return .secondary
@@ -181,11 +181,11 @@ func pageButton(_ b: window.PointerButton) -> web.PointerButton {
 /// The system clipboard, for a page's copy and paste.
 struct SystemClipboard: web.Clipboard {
     func ReadText() -> string { return window.ClipboardText() }
-    func WriteText(_ text: string) { window.SetClipboardText(text) }
+    func WriteText(text: string) { window.SetClipboardText(text) }
 }
 
 /// A key's W3C `KeyboardEvent.code` name: "KeyA", "Digit1", "ArrowLeft".
-public func CodeName(_ code: window.KeyCode) -> string {
+public func CodeName(code: window.KeyCode) -> string {
     switch code {
     case .unknown: return "Unidentified"
     case .a: return "KeyA"

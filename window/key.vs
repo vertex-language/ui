@@ -43,7 +43,7 @@ public struct Modifiers {
 }
 
 // modifiersFrom reads window.cpp's modifier bits (Mod).
-func modifiersFrom(_ bits: int32) -> Modifiers {
+func modifiersFrom(bits: int32) -> Modifiers {
     var m = Modifiers()
     m.Shift = bits & 1 != 0
     m.Control = bits & 2 != 0

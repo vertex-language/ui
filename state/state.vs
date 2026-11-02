@@ -34,7 +34,7 @@ public class Source {
         for o in told { o.invalidate() }
     }
 
-    final func remove(_ o: Observer) {
+    final func remove(o: Observer) {
         var kept: [Observer] = []
         for x in observers where x !== o { kept.append(x) }
         observers = kept
@@ -87,7 +87,7 @@ var flushing = false
 
 func observing() -> Observer? { return current }
 
-func observe(_ o: Observer?) -> Observer? {
+func observe(o: Observer?) -> Observer? {
     let prev = current
     current = o
     return prev
@@ -120,7 +120,7 @@ func flush() {
 public final class Cell: Source {
     var value: Any
 
-    init(_ value: Any) {
+    init(value: Any) {
         self.value = value
     }
 
@@ -131,7 +131,7 @@ public final class Cell: Source {
 
     /// Writes a value; one equal to what the cell holds tells no one, so
     /// `count = count` runs nothing.
-    func write(_ v: Any, same: bool) {
+    func write(v: Any, same: bool) {
         value = v
         if same { return }
         self.changed()
@@ -144,7 +144,7 @@ public final class Cell: Source {
 /// other type is never equal, so writing it always tells what read it.
 /// Generic, so it is compiled where the value's type is: vsc does not yet
 /// cast an array boxed in another module.
-func equal<T>(_ a: Any, _ b: T) -> bool {
+func equal<T>(a: Any, b: T) -> bool {
     if let x = a as? int, let y = b as? int { return x == y }
     if let x = a as? string, let y = b as? string { return x == y }
     if let x = a as? bool, let y = b as? bool { return x == y }
@@ -164,7 +164,7 @@ public final class Derived: Observer {
     let compute: () -> Any
     var cached: Any? = nil
 
-    init(_ compute: () -> Any) {
+    init(compute: () -> Any) {
         self.compute = compute
     }
 
@@ -187,7 +187,7 @@ public final class Derived: Observer {
 public struct Signal<T> {
     let cell: Cell
 
-    public init(_ value: T) {
+    public init(value: T) {
         cell = Cell(value)
     }
 
@@ -218,7 +218,7 @@ public struct Unset {}
 public struct Computed<T> {
     let derived: Derived
 
-    public init(_ compute: () -> T) {
+    public init(compute: () -> T) {
         derived = Derived({ compute() })
     }
 
@@ -237,7 +237,7 @@ public final class Effect: Observer {
     /// before it runs again and when it is disposed.
     let owned = Owner()
 
-    public init(_ run: () -> void) {
+    public init(run: () -> void) {
         self.run = run
         super.init()
         adopt(self)
@@ -272,7 +272,7 @@ public final class Effect: Observer {
 }
 
 /// Runs body, and runs the effects its writes tell once, after it.
-public func Batch(_ body: () -> void) {
+public func Batch(body: () -> void) {
     batchDepth += 1
     body()
     batchDepth -= 1
@@ -280,7 +280,7 @@ public func Batch(_ body: () -> void) {
 }
 
 /// Reads inside body without following what is read.
-public func Untracked<T>(_ body: () -> T) -> T {
+public func Untracked<T>(body: () -> T) -> T {
     let prev = observe(nil)
     let v = body()
     _ = observe(prev)
@@ -331,13 +331,13 @@ public final class Owner {
 
 var currentOwner: Owner? = nil
 
-func own(_ o: Owner?) -> Owner? {
+func own(o: Owner?) -> Owner? {
     let prev = currentOwner
     currentOwner = o
     return prev
 }
 
-func adopt(_ e: Effect) {
+func adopt(e: Effect) {
     if let o = currentOwner { o.effects.append(e) }
 }
 
@@ -346,7 +346,7 @@ func adopt(_ e: Effect) {
 public func CurrentOwner() -> Owner? { return currentOwner }
 
 /// Runs body with what it makes owned by owner.
-public func WithOwner(_ owner: Owner, _ body: () -> void) {
+public func WithOwner(owner: Owner, body: () -> void) {
     let prev = own(owner)
     body()
     _ = own(prev)
@@ -354,7 +354,7 @@ public func WithOwner(_ owner: Owner, _ body: () -> void) {
 
 /// Runs f when the code running now is disposed: its effect runs again,
 /// or its owner is disposed.
-public func OnCleanup(_ f: () -> void) {
+public func OnCleanup(f: () -> void) {
     if let o = currentOwner { o.cleanups.append(f) }
 }
 
@@ -365,11 +365,11 @@ public func OnCleanup(_ f: () -> void) {
 public struct Readable<T> {
     let get: () -> T
 
-    public init(_ get: () -> T) {
+    public init(get: () -> T) {
         self.get = get
     }
 
-    public init(_ signal: Signal<T>) {
+    public init(signal: Signal<T>) {
         let s = signal
         self.get = { s.Value }
     }
@@ -407,7 +407,7 @@ public struct Resource<T> {
     let job: Job
 
     /// A resource loaded again when what key reads changes.
-    public init<K>(of key: () -> K, keepPrevious: bool = false, _ load: (K) async throws -> T) {
+    public init<K>(of key: () -> K, keepPrevious: bool = false, load: (K) async throws -> T) {
         signal = Signal<LoadBox<T>>(LoadBox<T>(Load<T>.loading))
         pending = Signal<bool>(true)
         job = newJob()
@@ -451,7 +451,7 @@ public struct Resource<T> {
     }
 
     /// A resource loaded once, and again on Reload.
-    public init(keepPrevious: bool = false, _ load: () async throws -> T) {
+    public init(keepPrevious: bool = false, load: () async throws -> T) {
         self.init(of: { 0 }, keepPrevious: keepPrevious, { _ in try await load() })
     }
 
@@ -479,10 +479,10 @@ public struct Resource<T> {
 /// enum with a payload (vsc_TODO.md #13).
 final class LoadBox<T> {
     let load: Load<T>
-    init(_ l: Load<T>) { load = l }
+    init(l: Load<T>) { load = l }
 }
 
-func isReady<T>(_ l: Load<T>) -> bool {
+func isReady<T>(l: Load<T>) -> bool {
     if case .ready(_) = l { return true }
     return false
 }
@@ -498,7 +498,7 @@ final class Job {
 
     init() {}
 
-    func start(_ f: () -> Task<Void, Never>) {
+    func start(f: () -> Task<Void, Never>) {
         starter = f
         restart()
     }

@@ -80,7 +80,7 @@ final class Browser {
     }
 
     /// The address bar, the buttons, and the status text.
-    func drawChrome(_ canvas: draw.Canvas, scale: float32) {
+    func drawChrome(canvas: draw.Canvas, scale: float32) {
         let w = canvas.Width
         let h = int32(chromeHeight * scale)
         canvas.Fill(draw.IRect(0, 0, w, h), draw.Color(0xf0, 0xf2, 0xf5))
@@ -100,7 +100,7 @@ final class Browser {
                      color: status.isEmpty ? on : draw.Color(0x57, 0x60, 0x6a))
     }
 
-    func frame(_ time: float64) {
+    func frame(time: float64) {
         frameWanted = false
         if view.Advance(time: time) || view.NeedsAnimation() {
             // A blinking caret wants the next frame too.
@@ -124,7 +124,7 @@ final class Browser {
         }
     }
 
-    func handle(_ event: window.Event) -> bool {
+    func handle(event: window.Event) -> bool {
         switch event {
         case .closeRequested:
             return false

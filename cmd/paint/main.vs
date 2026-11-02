@@ -11,7 +11,7 @@ struct Canvas {
     var dark: bool
 }
 
-func clear(_ c: inout Canvas) {
+func clear(c: inout Canvas) {
     let shade: uint8 = c.dark ? 28 : 238
     var i = 0
     while i < c.pixels.count {
@@ -23,14 +23,14 @@ func clear(_ c: inout Canvas) {
     }
 }
 
-func resized(_ c: inout Canvas, _ size: window.PixelSize) {
+func resized(c: inout Canvas, size: window.PixelSize) {
     c.size = size
     c.pixels = [uint8](repeating: 0, count: int(size.Width) * int(size.Height) * 4)
     clear(&c)
 }
 
 // dot paints a filled circle, in pixels, centred on (x, y).
-func dot(_ c: inout Canvas, _ x: int32, _ y: int32, _ radius: int32) {
+func dot(c: inout Canvas, x: int32, y: int32, radius: int32) {
     var dy = -radius
     while dy <= radius {
         var dx = -radius

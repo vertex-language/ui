@@ -20,19 +20,19 @@ extension WebView {
     public var CanGoForward: bool { return position + 1 < history.count }
 
     /// Called as a load starts, with its address.
-    public func OnLoadStarted(_ handler: (string) -> Void) { onLoadStarted = handler }
+    public func OnLoadStarted(handler: (string) -> Void) { onLoadStarted = handler }
 
     /// Called once a page is shown, or has failed, with what came back:
     /// the host redraws, and may print the report.
-    public func OnLoadFinished(_ handler: (LoadReport) -> Void) { onLoadFinished = handler }
+    public func OnLoadFinished(handler: (LoadReport) -> Void) { onLoadFinished = handler }
     /// Called when the view changed on its own and wants drawing again:
     /// a page shown before its images, and again as they arrive.
-    public func OnNeedsDisplay(_ handler: () -> Void) { onNeedsDisplay = handler }
+    public func OnNeedsDisplay(handler: () -> Void) { onNeedsDisplay = handler }
 
     /// Shows an address, adding it to the history: http(s) URLs from the
     /// network, file: URLs and paths from disk, and "about:home" (or "")
     /// the start page.
-    public func Navigate(_ address: string) {
+    public func Navigate(address: string) {
         go(address, record: true)
     }
 
@@ -54,14 +54,14 @@ extension WebView {
     }
 
     /// Marks an address visited, for :visited.
-    public func MarkVisited(_ address: string) {
+    public func MarkVisited(address: string) {
         if !visited.contains(address) {
             visited.insert(address)
             Page.VisitedChanged()
         }
     }
 
-    func go(_ address: string, record: bool) {
+    func go(address: string, record: bool) {
         var target = address
         if target.isEmpty || target == "about:home" { target = StartPage }
         url = target
@@ -102,7 +102,7 @@ extension WebView {
 
     /// Fetches a page and what it refers to, then shows it: unless the
     /// view went elsewhere meanwhile.
-    func loadRemote(_ target: string, _ generation: int) async {
+    func loadRemote(target: string, generation: int) async {
         let remote = await fetchPage(target)
         if generation != loads { return }
         if let dir = RecordInto {
@@ -136,13 +136,13 @@ extension WebView {
         if let h = onLoadFinished { h(rep) }
     }
 
-    func showMessage(_ heading: string, _ text: string) {
+    func showMessage(heading: string, text: string) {
         Page.LoadHTML("<body style='font-family:system-ui;margin:40px;color:#333'><h2 style='margin-top:0'>\(heading)</h2><p>\(text)</p><p><a href='about:home'>Start page</a></p></body>")
     }
 }
 
 /// The report of a page from disk: nothing fetched, nothing to list.
-func fileReport(_ address: string) -> LoadReport {
+func fileReport(address: string) -> LoadReport {
     return LoadReport(URL: address, Status: 200, ContentType: "text/html", Error: "", Bytes: 0, Resources: 0, Milliseconds: 0,
                       Stylesheets: 0, StylesheetsLoaded: 0, Images: 0, ImagesDecoded: 0, Fonts: 0, Failed: [], Undecodable: [],
                       Coverage: css.Coverage())

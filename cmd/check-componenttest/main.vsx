@@ -16,15 +16,15 @@ import (
 final class CrossSource: viewport.Source {
     var handle: viewport.Handle? = nil
     override init() { super.init() }
-    override func Attached(_ h: viewport.Handle) { handle = h }
-    override func PointerMove(_ e: dom.PointerEvent, x: float32, y: float32) { handle?.Cursor = "crosshair" }
+    override func Attached(h: viewport.Handle) { handle = h }
+    override func PointerMove(e: dom.PointerEvent, x: float32, y: float32) { handle?.Cursor = "crosshair" }
 }
 
 var crossSource: CrossSource! = nil
 
 var failures = 0
 
-func check(_ ok: bool, _ what: string) {
+func check(ok: bool, what: string) {
     if ok {
         print("ok    \(what)")
     } else {
@@ -103,7 +103,7 @@ let Theme = createContext("light")
 
 final class Session {
     var Name: string
-    init(_ name: string) { Name = name }
+    init(name: string) { Name = name }
 }
 let CurrentUser = createContext<Session?>(nil)
 
@@ -226,7 +226,7 @@ func AddContact() -> Element {
 
 struct NotFound: Error {}
 
-func loadUser(_ id: int) async throws -> string {
+func loadUser(id: int) async throws -> string {
     try await time.Sleep(time.Duration.Milliseconds(10))
     if id == 0 { throw NotFound() }
     return id == 1 ? "Ada" : "Grace"

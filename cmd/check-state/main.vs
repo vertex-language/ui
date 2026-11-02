@@ -8,7 +8,7 @@ import (
 
 var failures = 0
 
-func check(_ ok: bool, _ what: string) {
+func check(ok: bool, what: string) {
     if ok {
         print("ok    \(what)")
     } else {
@@ -146,8 +146,8 @@ func testOwners() {
 
     init(owner: string) { Owner = owner }
 
-    func Add(_ t: string) { Todos.append(Todo(Title: t, Done: false)) }
-    func Toggle(_ i: int) { Todos[i].Done = !Todos[i].Done }
+    func Add(t: string) { Todos.append(Todo(Title: t, Done: false)) }
+    func Toggle(i: int) { Todos[i].Done = !Todos[i].Done }
     func Clear() { Todos.removeAll { $0.Done } }
 }
 
@@ -174,13 +174,13 @@ func testObservable() {
 
 struct Oops: Error {}
 
-func fetch(_ n: int) async throws -> int {
+func fetch(n: int) async throws -> int {
     try await time.Sleep(time.Duration.Milliseconds(10))
     if n < 0 { throw Oops() }
     return n * 2
 }
 
-func describe(_ l: state.Load<int>) -> string {
+func describe(l: state.Load<int>) -> string {
     switch l {
     case .loading: return "loading"
     case .ready(let v): return "ready \(v)"

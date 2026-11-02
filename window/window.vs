@@ -131,24 +131,24 @@ public func (w: borrowing Window) Focused() -> bool {
 
 // MARK: - Changing it
 
-public func (w: borrowing Window) SetTitle(_ title: string) {
+public func (w: borrowing Window) SetTitle(title: string) {
     winSetTitle(w.Id, title)
 }
 
 /// Resizes the content area, in points.
-public func (w: borrowing Window) SetSize(_ size: Size) {
+public func (w: borrowing Window) SetSize(size: Size) {
     winSetSize(w.Id, float64(size.Width), float64(size.Height))
 }
 
-public func (w: borrowing Window) SetMinSize(_ size: Size) {
+public func (w: borrowing Window) SetMinSize(size: Size) {
     winSetMinSize(w.Id, float64(size.Width), float64(size.Height))
 }
 
-public func (w: borrowing Window) SetVisible(_ visible: bool) {
+public func (w: borrowing Window) SetVisible(visible: bool) {
     winSetVisible(w.Id, visible ? 1 : 0)
 }
 
-public func (w: borrowing Window) SetFullscreen(_ fullscreen: bool) {
+public func (w: borrowing Window) SetFullscreen(fullscreen: bool) {
     winSetFullscreen(w.Id, fullscreen ? 1 : 0)
 }
 
@@ -176,12 +176,12 @@ public func (w: borrowing Window) Fullscreen() -> bool {
 }
 
 /// Keeps the window over other apps' windows, or lets it go back.
-public func (w: borrowing Window) SetAlwaysOnTop(_ onTop: bool) {
+public func (w: borrowing Window) SetAlwaysOnTop(onTop: bool) {
     winSetAlwaysOnTop(w.Id, onTop ? 1 : 0)
 }
 
 /// The whole window's opacity, 0.05 to 1.
-public func (w: borrowing Window) SetOpacity(_ opacity: float32) {
+public func (w: borrowing Window) SetOpacity(opacity: float32) {
     winSetOpacity(w.Id, float64(opacity))
 }
 
@@ -200,7 +200,7 @@ public func Beep() {
 /// `.relativeMotion` instead of `.pointerMoved`. The lock is let go while
 /// another window has focus and taken again when this one gets it back.
 /// Unlock it to give the user their cursor (a pause menu, Escape).
-public func (w: borrowing Window) SetPointerLocked(_ locked: bool) {
+public func (w: borrowing Window) SetPointerLocked(locked: bool) {
     winSetPointerLocked(w.Id, locked ? 1 : 0)
 }
 
@@ -240,7 +240,7 @@ public enum Cursor: Equatable {
 }
 
 /// Changes the mouse cursor shape when hovered over this window.
-public func (w: borrowing Window) SetCursor(_ cursor: Cursor) {
+public func (w: borrowing Window) SetCursor(cursor: Cursor) {
     var c: int32 = 0
     switch cursor {
     case .arrow: c = 0
@@ -280,7 +280,7 @@ public func (w: borrowing Window) SetCursor(_ cursor: Cursor) {
 /// row first, `scale` pixels per point (2 for pixels drawn for Retina),
 /// with the click point at pixel (hotX, hotY). It stays until the next
 /// `SetCursor` or `SetCursorImage`.
-public func (w: borrowing Window) SetCursorImage(_ pixels: borrowing [uint8], width: int32, height: int32,
+public func (w: borrowing Window) SetCursorImage(pixels: borrowing [uint8], width: int32, height: int32,
                                                   hotX: int32, hotY: int32, scale: float32 = 1) throws {
     let want = int(width) * int(height) * 4
     if width <= 0 || height <= 0 || pixels.count != want {

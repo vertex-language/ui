@@ -24,7 +24,7 @@ public enum WindowError: Error {
 }
 
 // errorFor is the error a negative window.cpp result stands for.
-func errorFor(_ code: int32, _ context: string) -> WindowError {
+func errorFor(code: int32, context: string) -> WindowError {
     switch code {
     case -1: return .unsupported(context)
     case -2: return .noDisplay(context)

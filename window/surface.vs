@@ -15,7 +15,7 @@ public func (w: borrowing Window) Surface() -> Surface {
 /// copied, so the buffer is the caller's again as soon as this returns.
 ///
 /// Size them with `Window.PixelSize` to fill the window at full resolution.
-public func (s: borrowing Surface) Present(_ pixels: borrowing [uint8], size: PixelSize) throws {
+public func (s: borrowing Surface) Present(pixels: borrowing [uint8], size: PixelSize) throws {
     let want = int(size.Width) * int(size.Height) * 4
     if size.Width <= 0 || size.Height <= 0 || pixels.count != want {
         throw WindowError.invalidArgument(
@@ -38,7 +38,7 @@ public enum ScalingMode: int32 {
 }
 
 /// Sets the surface content scaling mode.
-public func (s: borrowing Surface) SetScaling(_ mode: ScalingMode) {
+public func (s: borrowing Surface) SetScaling(mode: ScalingMode) {
     winSetScaling(s.window, mode.rawValue)
 }
 

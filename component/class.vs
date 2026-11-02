@@ -23,7 +23,7 @@ open class Component<P, S> {
     public init() {}
 
     /// Sets the state, and renders the component again.
-    public func setState(_ next: S) {
+    public func setState(next: S) {
         state = next
         if let f = fiber { f.schedule() }
     }
@@ -43,7 +43,7 @@ open class Component<P, S> {
 
     /// The render the compiler lowers `<Comp …/>` to: props given, then
     /// render, inside the instance's fiber.
-    public func _mount(_ props: P, _ renderFn: () -> Node) -> Node {
+    public func _mount(props: P, renderFn: () -> Node) -> Node {
         let prevProps = self.props
         let prevState = lastState
         self.props = props
@@ -65,13 +65,13 @@ open class Component<P, S> {
 }
 
 /// state.OnCleanup, for code where `state` is a class component's own.
-func onCleanup(_ f: () -> void) {
+func onCleanup(f: () -> void) {
     state.OnCleanup(f)
 }
 
 /// A class component's call: the instance made where the call was
 /// written the first time, kept after that, given its props and rendered.
-public func MountClass<C: AnyObject, P>(_ type: string, _ inst: C, _ props: P, _ mount: @escaping (C, P) -> Node) -> Node {
+public func MountClass<C: AnyObject, P>(type: string, inst: C, props: P, mount: @escaping (C, P) -> Node) -> Node {
     return Call(type, {
         let held = useRef<C>(nil)
         if held.current == nil { held.current = inst }
@@ -80,7 +80,7 @@ public func MountClass<C: AnyObject, P>(_ type: string, _ inst: C, _ props: P, _
 }
 
 /// A keyed class component's call.
-public func MountClass<K, C: AnyObject, P>(key: K, _ type: string, _ inst: C, _ props: P, _ mount: @escaping (C, P) -> Node) -> Node {
+public func MountClass<K, C: AnyObject, P>(key: K, type: string, inst: C, props: P, mount: @escaping (C, P) -> Node) -> Node {
     let n = MountClass(type, inst, props, mount)
     n.key = "\(key)"
     return n

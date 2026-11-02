@@ -26,7 +26,7 @@ public func View(url: string = "", controller: WebView? = nil, class: string = "
 }
 
 @MainActor
-func viewBody(_ url: string, _ controller: WebView?, _ cls: string, _ onLoad: ((LoadReport) -> void)?) -> component.Node {
+func viewBody(url: string, controller: WebView?, cls: string, onLoad: ((LoadReport) -> void)?) -> component.Node {
     let source = component.useMemo({ PageSource(controller ?? WebView()) }, [])
     source.onLoad = onLoad
     component.useEffect({
@@ -45,7 +45,7 @@ final class PageSource: viewport.Source {
     var width: float32 = 0
     var height: float32 = 0
 
-    init(_ view: WebView) {
+    init(view: WebView) {
         self.view = view
         super.init()
         view.OnNeedsDisplay { self.changed() }
@@ -55,7 +55,7 @@ final class PageSource: viewport.Source {
         }
     }
 
-    override func Attached(_ handle: viewport.Handle) {
+    override func Attached(handle: viewport.Handle) {
         self.handle = handle
         handle.Invalidate()
     }
@@ -68,7 +68,7 @@ final class PageSource: viewport.Source {
         handle?.Invalidate()
     }
 
-    override func Draw(_ f: viewport.Frame) -> [uint8] {
+    override func Draw(f: viewport.Frame) -> [uint8] {
         let w = float32(f.Width) / f.Scale
         let h = float32(f.Height) / f.Scale
         if w != width || h != height {
@@ -85,7 +85,7 @@ final class PageSource: viewport.Source {
     }
 
     /// Gives the page an input; what it took stops at the box.
-    func send(_ input: web.Input, _ e: dom.Event) {
+    func send(input: web.Input, e: dom.Event) {
         let r = view.Page.Handle(input)
         if r == .handled {
             e.PreventDefault()
@@ -95,15 +95,15 @@ final class PageSource: viewport.Source {
         if r == .handled || view.Page.NeedsRepaint() { changed() }
     }
 
-    override func PointerDown(_ e: dom.PointerEvent, x: float32, y: float32) {
+    override func PointerDown(e: dom.PointerEvent, x: float32, y: float32) {
         send(.pointerDown(pointer(e, x, y)), e)
     }
 
-    override func PointerMove(_ e: dom.PointerEvent, x: float32, y: float32) {
+    override func PointerMove(e: dom.PointerEvent, x: float32, y: float32) {
         send(.pointerMoved(draw.Point(x, y)), e)
     }
 
-    override func PointerUp(_ e: dom.PointerEvent, x: float32, y: float32) {
+    override func PointerUp(e: dom.PointerEvent, x: float32, y: float32) {
         send(.pointerUp(pointer(e, x, y)), e)
     }
 
@@ -113,21 +113,21 @@ final class PageSource: viewport.Source {
         changed()
     }
 
-    override func Wheel(_ e: dom.WheelEvent, x: float32, y: float32) {
+    override func Wheel(e: dom.WheelEvent, x: float32, y: float32) {
         _ = view.Page.Handle(.pointerMoved(draw.Point(x, y)))
         send(.wheel(web.Wheel(draw.Point(e.DeltaX, e.DeltaY),
                               modifiers: web.Modifiers(shift: e.Shift, control: e.Control, alt: e.Alt, meta: e.Meta))), e)
     }
 
-    override func KeyDown(_ e: dom.KeyboardEvent) {
+    override func KeyDown(e: dom.KeyboardEvent) {
         send(.keyDown(web.Key(Key: e.Key, Code: e.Code, Shift: e.Shift, Control: e.Control, Alt: e.Alt, Meta: e.Meta)), e)
     }
 
-    override func KeyUp(_ e: dom.KeyboardEvent) {
+    override func KeyUp(e: dom.KeyboardEvent) {
         send(.keyUp(web.Key(Key: e.Key, Code: e.Code, Shift: e.Shift, Control: e.Control, Alt: e.Alt, Meta: e.Meta)), e)
     }
 
-    override func Composition(_ e: dom.CompositionEvent) {
+    override func Composition(e: dom.CompositionEvent) {
         switch e.Type {
         case "compositionupdate": send(.composition(e.Data), e)
         case "compositionend": if e.Data.isEmpty { send(.composition(""), e) }
@@ -135,14 +135,14 @@ final class PageSource: viewport.Source {
         }
     }
 
-    override func Text(_ e: dom.InputEvent) {
+    override func Text(e: dom.InputEvent) {
         if e.Data.isEmpty { return }
         send(.text(e.Data), e)
     }
 }
 
 /// A page's pointer press from a box's pointer event, at x, y in the box.
-func pointer(_ e: dom.PointerEvent, _ x: float32, _ y: float32) -> web.Pointer {
+func pointer(e: dom.PointerEvent, x: float32, y: float32) -> web.Pointer {
     var button = web.PointerButton.primary
     switch e.Button {
     case 1: button = .middle

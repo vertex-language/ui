@@ -26,7 +26,7 @@ let urls: [string] = [
     "https://www.gstatic.com/marketing-cms/assets/images/f5/d3/a7f9db7045429cb6dc6be56bdcbe/google-logo-about.svg"
 ]
 
-func one(_ i: int) async -> string {
+func one(i: int) async -> string {
     do {
         let res = try await http.Get(urls[i])
         return "\(i): \(res.StatusCode) \(res.Body.count) bytes at \(ms()) ms"

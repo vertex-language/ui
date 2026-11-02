@@ -31,7 +31,7 @@ public func Icon(of: icons.Icon, size: float32 = 16) -> component.Node {
 }
 
 /// An element of the drawing, and what is inside it.
-func node(_ e: icons.Element) -> component.Node {
+func node(e: icons.Element) -> component.Node {
     var attrs: [component.Attribute] = []
     for (k, v) in e.Attributes { attrs.append(component.Attribute.Static(k, v)) }
     return component.Element(e.Tag, attrs, e.Children.map { node($0) })

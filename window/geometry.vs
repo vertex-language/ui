@@ -7,7 +7,7 @@ public struct Size {
     public var Width: float32
     public var Height: float32
 
-    public init(_ width: float32, _ height: float32) {
+    public init(width: float32, height: float32) {
         Width = width
         Height = height
     }
@@ -19,7 +19,7 @@ public struct PixelSize {
     public var Width: int32
     public var Height: int32
 
-    public init(_ width: int32, _ height: int32) {
+    public init(width: int32, height: int32) {
         Width = width
         Height = height
     }
@@ -30,7 +30,7 @@ public struct Point {
     public var X: float32
     public var Y: float32
 
-    public init(_ x: float32, _ y: float32) {
+    public init(x: float32, y: float32) {
         X = x
         Y = y
     }

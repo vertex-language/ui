@@ -1,7 +1,7 @@
 package window
 
 /// Puts text on the system clipboard, replacing what was there.
-public func SetClipboardText(_ text: string) {
+public func SetClipboardText(text: string) {
     winSetClipboardText(text)
 }
 

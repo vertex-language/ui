@@ -54,7 +54,7 @@ public final class Screen {
     /// what it finds at the end of timeout (milliseconds), none.
     ///
     ///     let name = await screen.WaitFor { screen.ByText("Ada") }
-    public func WaitFor(timeout: int = 2000, _ query: () -> Found) async -> Found {
+    public func WaitFor(timeout: int = 2000, query: () -> Found) async -> Found {
         var waited = 0
         while true {
             let f = query()
@@ -69,18 +69,18 @@ public final class Screen {
     /// Elements whose role -- written, or the one their tag implies -- is
     /// role: "button", "link", "checkbox", "textbox", "listitem",
     /// "heading", "list", "img", "navigation", "main".
-    public func ByRole(_ role: string) -> Found {
+    public func ByRole(role: string) -> Found {
         return find { n in roleOf(n) == role }
     }
 
     /// Elements whose own text, whitespace collapsed, is text.
-    public func ByText(_ text: string) -> Found {
+    public func ByText(text: string) -> Found {
         return find { n in collapse(n.InnerText()) == text && !n.Children.contains { c in c.Kind == html.NodeKind.element && collapse(c.InnerText()) == text } }
     }
 
     /// Controls labelled text: by aria-label, or by a <label> around them
     /// or pointing at them with `for`.
-    public func ByLabel(_ text: string) -> Found {
+    public func ByLabel(text: string) -> Found {
         var ids: [string] = []
         var wrapped: [html.Node] = []
         for l in all() where l.TagName == "label" && collapse(l.InnerText()) == text {
@@ -93,21 +93,21 @@ public final class Screen {
         }
     }
 
-    public func ByPlaceholder(_ text: string) -> Found {
+    public func ByPlaceholder(text: string) -> Found {
         return find { n in n.GetAttribute("placeholder") == text }
     }
 
     /// Elements marked `data-testid="id"`.
-    public func ByTestId(_ id: string) -> Found {
+    public func ByTestId(id: string) -> Found {
         return find { n in n.GetAttribute("data-testid") == id }
     }
 
     /// Elements matching a CSS selector.
-    public func Query(_ selector: string) -> Found {
+    public func Query(selector: string) -> Found {
         return Found(Page.QuerySelectorAll(selector), self)
     }
 
-    func find(_ test: (html.Node) -> bool) -> Found {
+    func find(test: (html.Node) -> bool) -> Found {
         var out: [html.Node] = []
         for n in all() where test(n) { out.append(n) }
         return Found(out, self)
@@ -124,7 +124,7 @@ public final class Screen {
     /// press and release, through the page's input, as a user's would.
     /// Answers whether there was somewhere to click.
     @discardableResult
-    public func Click(_ found: Found) -> bool {
+    public func Click(found: Found) -> bool {
         guard let n = found.First, let p = pointOn(n) else { return false }
         state.Batch {
             // The pointer goes there first, as a user's does.
@@ -138,7 +138,7 @@ public final class Screen {
     /// Moves the pointer onto the first element found: mouseenter to it,
     /// mouseleave to what the pointer left.
     @discardableResult
-    public func Hover(_ found: Found) -> bool {
+    public func Hover(found: Found) -> bool {
         guard let n = found.First, let p = pointOn(n) else { return false }
         state.Batch { _ = self.Page.Handle(.pointerMoved(p)) }
         return true
@@ -146,7 +146,7 @@ public final class Screen {
 
     /// Double-clicks the first element found: two clicks, and a dblclick.
     @discardableResult
-    public func DoubleClick(_ found: Found) -> bool {
+    public func DoubleClick(found: Found) -> bool {
         guard let n = found.First, let p = pointOn(n) else { return false }
         state.Batch {
             // The pointer goes there first, as a user's does.
@@ -162,7 +162,7 @@ public final class Screen {
     /// Presses the secondary button on the first element found: a
     /// contextmenu.
     @discardableResult
-    public func RightClick(_ found: Found) -> bool {
+    public func RightClick(found: Found) -> bool {
         guard let n = found.First, let p = pointOn(n) else { return false }
         state.Batch {
             // The pointer goes there first, as a user's does.
@@ -175,14 +175,14 @@ public final class Screen {
 
     /// Clicks a field to focus it, and types text at the end of what it
     /// holds, as a user who clicks into a field and types does.
-    public func Type(into found: Found, _ text: string) {
+    public func Type(into found: Found, text: string) {
         _ = Click(found)
         state.Batch { _ = self.Page.Handle(.keyDown(web.Key(Key: "End", Code: "End"))) }
         state.Batch { _ = self.Page.Handle(.text(text)) }
     }
 
     /// Selects everything in a field and types text in its place.
-    public func Replace(in found: Found, _ text: string) {
+    public func Replace(in found: Found, text: string) {
         _ = Click(found)
         state.Batch { _ = self.Page.Handle(.keyDown(web.Key(Key: "a", Code: "KeyA", Meta: true))) }
         state.Batch { _ = self.Page.Handle(.text(text)) }
@@ -190,25 +190,25 @@ public final class Screen {
 
     /// Presses a key where the focus is: "Enter", "Tab", "Backspace",
     /// "Escape", "ArrowDown", or a character.
-    public func Press(_ key: string) {
+    public func Press(key: string) {
         let code = key.count == 1 ? "Key" + key.uppercased() : key
         state.Batch { _ = self.Page.Handle(.keyDown(web.Key(Key: key, Code: code))) }
     }
 
     /// Releases a key where the focus is: keyup.
-    public func Release(_ key: string) {
+    public func Release(key: string) {
         let code = key.count == 1 ? "Key" + key.uppercased() : key
         state.Batch { _ = self.Page.Handle(.keyUp(web.Key(Key: key, Code: code))) }
     }
 
     /// An input method composing text where the focus is: what it has so
     /// far (compositionupdate), or "" to give it up.
-    public func Compose(_ text: string) {
+    public func Compose(text: string) {
         state.Batch { _ = self.Page.Handle(.composition(text)) }
     }
 
     /// A point the page hit-tests to the element or something in it.
-    func pointOn(_ n: html.Node) -> draw.Point? {
+    func pointOn(n: html.Node) -> draw.Point? {
         render()
         var y: float32 = 1
         while y < float32(height) {
@@ -225,7 +225,7 @@ public final class Screen {
 
     /// Shows the screen in a dark or a light color scheme, as the system's
     /// appearance would.
-    public func SetDark(_ dark: bool) {
+    public func SetDark(dark: bool) {
         Page.SetColorScheme(dark: dark)
     }
 
@@ -245,12 +245,12 @@ public final class Screen {
     /// moves to `to` in `steps`, and lets go: a slider dragged, a view
     /// turned. `each` runs after every step (to time it, or look).
     @discardableResult
-    public func Drag(_ found: Found, from: float32, to: float32, steps: int = 10, y: float32 = 0.5,
+    public func Drag(found: Found, from: float32, to: float32, steps: int = 10, y: float32 = 0.5,
                      each: (int) -> void = { _ in }) -> bool {
         guard let n = found.First, let box = Page.BoxFor(n) else { return false }
         let pos = layout.PagePosition(box)
         let scroll = Page.ScrollOffset()
-        func at(_ f: float32) -> draw.Point {
+        func at(f: float32) -> draw.Point {
             return draw.Point(pos.x - scroll.X + box.Width * f, pos.y - scroll.Y + box.Height * y)
         }
         state.Batch {
@@ -279,14 +279,14 @@ public struct Found {
     public let Nodes: [html.Node]
     let screen: Screen
 
-    init(_ nodes: [html.Node], _ screen: Screen) {
+    init(nodes: [html.Node], screen: Screen) {
         Nodes = nodes
         self.screen = screen
     }
 
     /// Nth is the i-th element found (0 first), alone; none when there
     /// are fewer.
-    public func Nth(_ i: int) -> Found {
+    public func Nth(i: int) -> Found {
         return Found(i >= 0 && i < Nodes.count ? [Nodes[i]] : [], screen)
     }
 
@@ -301,9 +301,9 @@ public struct Found {
     public var Value: string { return Nodes.first.map { screen.Page.ValueOf($0) } ?? "" }
 
     /// The first element's attribute.
-    public func Attribute(_ name: string) -> string? { return Nodes.first?.GetAttribute(name) }
+    public func Attribute(name: string) -> string? { return Nodes.first?.GetAttribute(name) }
 
-    public func HasClass(_ name: string) -> bool { return Nodes.first?.HasClass(name) ?? false }
+    public func HasClass(name: string) -> bool { return Nodes.first?.HasClass(name) ?? false }
 
     /// The first element's computed style, as laid out now.
     public var Style: cascade.ComputedStyle? {
@@ -322,7 +322,7 @@ public struct Pixels {
     }
 
     /// The color at a point.
-    public func At(_ x: int, _ y: int) -> draw.Color {
+    public func At(x: int, y: int) -> draw.Color {
         let i = (y * Image.Width + x) * 4
         return draw.Color(Image.Pixels[i], Image.Pixels[i + 1], Image.Pixels[i + 2], Image.Pixels[i + 3])
     }
@@ -341,14 +341,14 @@ public struct Pixels {
     }
 
     /// Writes the pixels as a PNG, to look at.
-    public func Write(_ path: string) {
+    public func Write(path: string) {
         try? fs.WriteFile(fs.Path(path), png.Encode(Image))
     }
 }
 
 /// Mounts root headless in a page of a size, with its packages' styles.
 @MainActor
-public func Mount(width: int32 = 800, height: int32 = 600, css: string = "", _ root: () -> component.Node) -> Screen {
+public func Mount(width: int32 = 800, height: int32 = 600, css: string = "", root: () -> component.Node) -> Screen {
     let page = web.Page()
     page.SetViewportSize(draw.Size(float32(width), float32(height)))
     page.LoadHTML("<!doctype html><html><head><style>html { font: 14px system-ui; } body { margin: 0; }" + css + "</style></head><body></body></html>")
@@ -361,7 +361,7 @@ public func Mount(width: int32 = 800, height: int32 = 600, css: string = "", _ r
 // MARK: - Roles
 
 /// An element's role: its role attribute, or what its tag implies.
-func roleOf(_ n: html.Node) -> string {
+func roleOf(n: html.Node) -> string {
     if let r = n.GetAttribute("role"), !r.isEmpty { return r }
     switch n.TagName {
     case "button": return "button"
@@ -391,11 +391,11 @@ func roleOf(_ n: html.Node) -> string {
     }
 }
 
-func isControl(_ n: html.Node) -> bool {
+func isControl(n: html.Node) -> bool {
     return n.TagName == "input" || n.TagName == "textarea" || n.TagName == "select" || n.TagName == "button"
 }
 
-func descendants(_ n: html.Node) -> [html.Node] {
+func descendants(n: html.Node) -> [html.Node] {
     var out: [html.Node] = []
     for c in n.Children where c.Kind == html.NodeKind.element {
         out.append(c)
@@ -404,7 +404,7 @@ func descendants(_ n: html.Node) -> [html.Node] {
     return out
 }
 
-func contains(_ a: html.Node, _ b: html.Node) -> bool {
+func contains(a: html.Node, b: html.Node) -> bool {
     var cur: html.Node? = b
     while let n = cur {
         if n.Id == a.Id { return true }
@@ -414,7 +414,7 @@ func contains(_ a: html.Node, _ b: html.Node) -> bool {
 }
 
 /// Text with its runs of whitespace made one space, and trimmed.
-func collapse(_ s: string) -> string {
+func collapse(s: string) -> string {
     var out = ""
     var space = false
     for ch in s {

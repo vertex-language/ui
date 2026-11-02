@@ -10,7 +10,7 @@ import (
 
 var failures = 0
 
-func check(_ ok: bool, _ what: string) {
+func check(ok: bool, what: string) {
     if ok {
         print("ok    \(what)")
     } else {
@@ -19,12 +19,12 @@ func check(_ ok: bool, _ what: string) {
     }
 }
 
-func pixelAt(_ pixels: [uint8], _ w: int32, _ x: int32, _ y: int32) -> draw.Color {
+func pixelAt(pixels: [uint8], w: int32, x: int32, y: int32) -> draw.Color {
     let i = int((y * w + x) * 4)
     return draw.Color(pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3])
 }
 
-func countDark(_ pixels: [uint8], _ w: int32, _ r: draw.IRect) -> int {
+func countDark(pixels: [uint8], w: int32, r: draw.IRect) -> int {
     var n = 0
     var y = r.Y
     while y < r.Bottom {
@@ -170,7 +170,7 @@ func testView() {
     check(pixelAt(pixels, w, 140, 190) == draw.Color(0x12, 0x34, 0x56), "the body's background fills the view")
 }
 
-func near(_ a: float32, _ b: float32, _ tolerance: float32 = 0.5) -> bool {
+func near(a: float32, b: float32, tolerance: float32 = 0.5) -> bool {
     let d = a - b
     return d < tolerance && d > -tolerance
 }

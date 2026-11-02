@@ -75,7 +75,7 @@ final class Host {
         view.Page.OnSubmit { _ in }
     }
 
-    func mount(css: string, _ root: () -> component.Node) {
+    func mount(css: string, root: () -> component.Node) {
         view.Page.LoadHTML("<!doctype html><html><head><style>" + baseCSS + css + "</style></head><body></body></html>")
         let doc = view.Page.Document!
         let body = doc.Tree.ElementsByTagName("body").first!
@@ -102,7 +102,7 @@ final class Host {
         requestFrame()
     }
 
-    func frame(_ t: float64) {
+    func frame(t: float64) {
         frameWanted = false
         let t0 = time.Instant.Now()
         if view.Advance(time: t) || view.NeedsAnimation() { requestFrame() }
@@ -149,7 +149,7 @@ final class Host {
     }
 
     /// Takes a window event; false when the app should end.
-    func handle(_ event: window.Event) -> bool {
+    func handle(event: window.Event) -> bool {
         switch event {
         case .closeRequested:
             // The app may ask first (unsaved work, running programs).
@@ -200,14 +200,14 @@ var closeHandler: (() -> bool)? = nil
 /// (its close button, ⌘Q): true lets it close, false keeps it open (to
 /// ask first, and Quit later).
 @MainActor
-public func OnCloseRequest(_ f: (() -> bool)?) {
+public func OnCloseRequest(f: (() -> bool)?) {
     closeHandler = f
 }
 
 /// SetFullscreen puts the window on its own space, filling the screen,
 /// or back.
 @MainActor
-public func SetFullscreen(_ on: bool) {
+public func SetFullscreen(on: bool) {
     current?.win.SetFullscreen(on)
 }
 
@@ -219,13 +219,13 @@ public func IsFullscreen() -> bool {
 
 /// SetAlwaysOnTop keeps the window over other apps' windows, or not.
 @MainActor
-public func SetAlwaysOnTop(_ on: bool) {
+public func SetAlwaysOnTop(on: bool) {
     current?.win.SetAlwaysOnTop(on)
 }
 
 /// SetOpacity makes the whole window translucent, 0.05 to 1.
 @MainActor
-public func SetOpacity(_ opacity: float32) {
+public func SetOpacity(opacity: float32) {
     current?.win.SetOpacity(opacity)
 }
 
@@ -291,7 +291,7 @@ public func IsDark() -> bool {
 
 /// SetTitle changes the running app's window title.
 @MainActor
-public func SetTitle(_ title: string) {
+public func SetTitle(title: string) {
     current?.win.SetTitle(title)
 }
 
@@ -301,7 +301,7 @@ public func Quit() {
     quitting = true
 }
 
-func ms(_ a: time.Instant, _ b: time.Instant) -> int64 {
+func ms(a: time.Instant, b: time.Instant) -> int64 {
     return (b - a).AsMilliseconds()
 }
 
@@ -313,7 +313,7 @@ let baseCSS = "html { font: 14px system-ui; } body { margin: 0; }\n"
 /// window is closed. Answers the program's exit status.
 @MainActor
 public func Run(title: string, width: float32 = 800, height: float32 = 600, css: string = "", unifiedTitlebar: bool = false,
-                _ root: () -> component.Node) async -> int32 {
+                root: () -> component.Node) async -> int32 {
     var options = window.Options()
     options.MinSize = window.Size(240, 160)
     options.UnifiedTitlebar = unifiedTitlebar

@@ -52,36 +52,36 @@ open class Source {
 
     /// The frame's RGBA pixels, premultiplied, top row first, Width ×
     /// Height of them. Fewer leaves the box as the page painted it.
-    open func Draw(_ frame: Frame) -> [uint8] { return [] }
+    open func Draw(frame: Frame) -> [uint8] { return [] }
 
     /// The frame drawn on the GPU, where the host draws with one: a
     /// texture on `device`, Width × Height, premultiplied RGBA, shown in
     /// the box with no copy through the host. Nil (the default) has the
     /// host take Draw's pixels instead. A source that overrides this
     /// still answers Draw, which is what a host without a GPU shows.
-    open func DrawTexture(_ frame: Frame, device: gpu.Device) -> gpu.Texture? { return nil }
+    open func DrawTexture(frame: Frame, device: gpu.Device) -> gpu.Texture? { return nil }
 
     /// The source is in the document, in the box `handle` is; Detached,
     /// it is not, and is drawn no more.
-    open func Attached(_ handle: Handle) {}
+    open func Attached(handle: Handle) {}
     open func Detached() {}
 
-    open func PointerDown(_ e: dom.PointerEvent, x: float32, y: float32) {}
-    open func PointerMove(_ e: dom.PointerEvent, x: float32, y: float32) {}
-    open func PointerUp(_ e: dom.PointerEvent, x: float32, y: float32) {}
+    open func PointerDown(e: dom.PointerEvent, x: float32, y: float32) {}
+    open func PointerMove(e: dom.PointerEvent, x: float32, y: float32) {}
+    open func PointerUp(e: dom.PointerEvent, x: float32, y: float32) {}
     open func PointerLeave() {}
-    open func Wheel(_ e: dom.WheelEvent, x: float32, y: float32) {}
-    open func KeyDown(_ e: dom.KeyboardEvent) {}
-    open func KeyUp(_ e: dom.KeyboardEvent) {}
+    open func Wheel(e: dom.WheelEvent, x: float32, y: float32) {}
+    open func KeyDown(e: dom.KeyboardEvent) {}
+    open func KeyUp(e: dom.KeyboardEvent) {}
     /// Text typed while the box has the keyboard, after the keyboard
     /// layout and input method: `e.Data`.
-    open func Text(_ e: dom.InputEvent) {}
+    open func Text(e: dom.InputEvent) {}
     /// An input method composing text while the box has the keyboard:
     /// compositionstart, compositionupdate (`e.Data`, what it has so far),
     /// compositionend; what it commits comes as Text.
-    open func Composition(_ e: dom.CompositionEvent) {}
+    open func Composition(e: dom.CompositionEvent) {}
     /// The box took the keyboard, or lost it.
-    open func Focus(_ focused: bool) {}
+    open func Focus(focused: bool) {}
 }
 
 /// A source that only draws, through a function of the frame's width,
@@ -90,12 +90,12 @@ open class Source {
 public final class Drawing: Source {
     let draw: (int, int, float64) -> [uint8]
 
-    public init(_ draw: @escaping (int, int, float64) -> [uint8]) {
+    public init(draw: @escaping (int, int, float64) -> [uint8]) {
         self.draw = draw
         super.init()
     }
 
-    public override func Draw(_ frame: Frame) -> [uint8] {
+    public override func Draw(frame: Frame) -> [uint8] {
         return draw(frame.Width, frame.Height, frame.Time)
     }
 }
@@ -114,13 +114,13 @@ final class entry {
     var w: float32 = 0
     var h: float32 = 0
 
-    init(_ source: Source, live: bool) {
+    init(source: Source, live: bool) {
         self.source = source
         self.live = live
     }
 
     /// p, a position in the page, from the box's corner.
-    func local(_ px: float32, _ py: float32) -> (float32, float32) {
+    func local(px: float32, py: float32) -> (float32, float32) {
         if let n = node, let r = component.Bounds(of: n) { return (px - r.X, py - r.Y) }
         return (px - x, py - y)
     }
@@ -136,7 +136,7 @@ var waker: (() -> void)? = nil
 /// SetWaker gives the host's way of asking for a frame, which Invalidate
 /// calls, so a viewport invalidated outside an event (by a task) is drawn.
 /// ui/app sets it.
-public func SetWaker(_ wake: (() -> void)?) {
+public func SetWaker(wake: (() -> void)?) {
     waker = wake
 }
 
@@ -146,7 +146,7 @@ public func SetWaker(_ wake: (() -> void)?) {
 public final class Handle {
     let e: entry
 
-    init(_ e: entry) {
+    init(e: entry) {
         self.e = e
     }
 
@@ -208,7 +208,7 @@ public func Viewport(source: Source, class: string = "viewport", live: bool = fa
 /// The viewport's body, rendered by its own fiber: its entry is made once
 /// and ends with it.
 @MainActor
-func box(_ source: Source, _ cls: string, _ live: bool, _ focusable: bool) -> component.Node {
+func box(source: Source, cls: string, live: bool, focusable: bool) -> component.Node {
     let held = component.useRef<entry>(nil)
     if held.current == nil { held.current = entry(source, live: live) }
     let e = held.current!
@@ -290,7 +290,7 @@ public func Wanted() -> bool {
 /// any.
 @MainActor
 @discardableResult
-public func Composite(_ page: web.Page, _ pixels: inout [uint8], width: int, height: int, scale: float32, time: float64,
+public func Composite(page: web.Page, pixels: inout [uint8], width: int, height: int, scale: float32, time: float64,
                       all: bool = true) -> bool {
     let scroll = page.ScrollOffset()
     var drew = false
@@ -321,7 +321,7 @@ public func Composite(_ page: web.Page, _ pixels: inout [uint8], width: int, hei
 
 // blit copies a w × h RGBA image into a canvas at (x, y), clipped, a row
 // at a time with memcpy (a byte loop costs a hundred times more).
-func blit(_ src: [uint8], _ w: int, _ h: int, into dst: inout [uint8], _ cw: int, _ ch: int, at x: int, _ y: int) {
+func blit(src: [uint8], w: int, h: int, into dst: inout [uint8], cw: int, ch: int, at x: int, y: int) {
     let cx0 = max(0, x), cy0 = max(0, y), cx1 = min(cw, x + w), cy1 = min(ch, y + h)
     if cx1 <= cx0 || cy1 <= cy0 { return }
     let span = (cx1 - cx0) * 4
