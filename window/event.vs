@@ -43,6 +43,10 @@ public enum Event {
     case frame(Frame)
     /// The system appearance changed.
     case themeChanged(Theme)
+    /// Files dragged in from outside landed at a point.
+    case filesDropped([string], Point)
+    /// The color panel (PickColor) has a new color: #rrggbb.
+    case colorPicked(string)
 }
 
 /// A key press or release.
@@ -75,6 +79,9 @@ public struct Pointer {
     public let Kind: PointerKind
     /// 0 to 1 for a device that measures it, and 0 for one that does not.
     public let Pressure: float32
+    /// A pen's lean in degrees, -90 to 90 each way; 0 for anything else.
+    public var TiltX: float32 = 0
+    public var TiltY: float32 = 0
     public let Modifiers: Modifiers
     /// How many presses in quick succession this is part of, on a press
     /// or release: 2 for a double click, 3 for a triple. 1 otherwise.

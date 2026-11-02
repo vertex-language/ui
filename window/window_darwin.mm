@@ -10,6 +10,7 @@ module;
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/QuartzCore.h>
 #import <CoreText/CoreText.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <objc/message.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -29,7 +30,7 @@ typedef struct {
     int32_t code;
     int32_t modifiers;
     int32_t flags;
-    double  x, y, pressure, time, interval;
+    double  x, y, pressure, time, interval, tiltX, tiltY;
     char*   text;   // malloc'd, or NULL
 } Event;
 
@@ -283,6 +284,29 @@ static void pushKind(CWWindow* w, int32_t kind, int32_t code, double x, double y
 - (BOOL)mouseDownCanMoveWindow { return NO; }
 - (BOOL)wantsUpdateLayer { return YES; }
 
+// Files dragged in from outside: the page takes them when they land.
+- (void)viewDidMoveToWindow {
+    [super viewDidMoveToWindow];
+    [self registerForDraggedTypes:@[NSPasteboardTypeFileURL]];
+}
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)info { return NSDragOperationCopy; }
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)info { return NSDragOperationCopy; }
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)info {
+    NSArray<NSURL*>* urls = [[info draggingPasteboard] readObjectsForClasses:@[[NSURL class]]
+                                                                     options:@{NSPasteboardURLReadingFileURLsOnlyKey: @YES}];
+    if (urls.count == 0) return NO;
+    NSMutableArray<NSString*>* paths = [NSMutableArray array];
+    for (NSURL* u in urls) [paths addObject:u.path];
+    NSPoint p = [self convertPoint:[info draggingLocation] fromView:nil];
+    Event e = {0};
+    e.kind = EventKind::filesDropped;
+    e.x = p.x;
+    e.y = p.y;
+    e.text = strdup([[paths componentsJoinedByString:@"\n"] UTF8String]);
+    push(self.owner, e);
+    return YES;
+}
+
 - (void)updateTrackingAreas {
     if (self.tracking != nil)
         [self removeTrackingArea:self.tracking];
@@ -306,6 +330,10 @@ static void pushKind(CWWindow* w, int32_t kind, int32_t code, double x, double y
     e.modifiers = modifiersFor([event modifierFlags]);
     e.flags = [event subtype] == NSEventSubtypeTabletPoint ? 1 : 0;
     e.pressure = e.flags == 1 ? [event pressure] : 0;
+    if (e.flags == 1) {
+        e.tiltX = [event tilt].x;
+        e.tiltY = [event tilt].y;
+    }
     // The click count rides above the pointer kind: 2 for a double click.
     if (kind == EventKind::pointerDown || kind == EventKind::pointerUp)
         e.flags |= ((int32_t)[event clickCount]) << 8;
@@ -746,6 +774,8 @@ int32_t winEventFlags(int32_t window) { Event* e = current(window); return e ? e
 double winEventX(int32_t window) { Event* e = current(window); return e ? e->x : 0; }
 double winEventY(int32_t window) { Event* e = current(window); return e ? e->y : 0; }
 double winEventPressure(int32_t window) { Event* e = current(window); return e ? e->pressure : 0; }
+double winEventTiltX(int32_t window) { Event* e = current(window); return e ? e->tiltX : 0; }
+double winEventTiltY(int32_t window) { Event* e = current(window); return e ? e->tiltY : 0; }
 double winEventTime(int32_t window) { Event* e = current(window); return e ? e->time : 0; }
 double winEventInterval(int32_t window) { Event* e = current(window); return e ? e->interval : 0; }
 
@@ -1136,6 +1166,131 @@ int32_t winPresent(int32_t window, const uint8_t* rgba, int32_t width, int32_t h
         [CATransaction commit];
         CGImageRelease(image);
         return Err::ok;
+    }
+}
+
+// What a panel answered, kept between the call that sizes it and the one
+// that takes it.
+static NSString* panelAnswer = nil;
+
+static int32_t giveAnswer(char* buf, int32_t cap) {
+    if (panelAnswer == nil) return 0;
+    const char* text = [panelAnswer UTF8String];
+    int32_t n = (int32_t)strlen(text);
+    if (buf != NULL && cap > 0) {
+        int32_t m = n < cap - 1 ? n : cap - 1;
+        memcpy(buf, text, (size_t)m);
+        buf[m] = 0;
+        panelAnswer = nil;
+    }
+    return n;
+}
+
+int32_t winPickFiles(int32_t multiple, const char* accept, char* buf, int32_t cap) noexcept {
+    if (cap > 0) return giveAnswer(buf, cap);
+    @autoreleasepool {
+        panelAnswer = nil;
+        NSOpenPanel* panel = [NSOpenPanel openPanel];
+        panel.allowsMultipleSelection = multiple != 0;
+        panel.canChooseDirectories = NO;
+        NSMutableArray<UTType*>* types = [NSMutableArray array];
+        for (NSString* raw in [[NSString stringWithUTF8String:accept ? accept : ""] componentsSeparatedByString:@","]) {
+            NSString* t = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+            UTType* type = nil;
+            if ([t hasPrefix:@"."]) type = [UTType typeWithFilenameExtension:[t substringFromIndex:1]];
+            else if ([t isEqualToString:@"image/*"]) type = UTTypeImage;
+            else if ([t isEqualToString:@"video/*"]) type = UTTypeMovie;
+            else if ([t isEqualToString:@"audio/*"]) type = UTTypeAudio;
+            else if (t.length > 0) type = [UTType typeWithMIMEType:t];
+            if (type != nil) [types addObject:type];
+        }
+        if (types.count > 0) panel.allowedContentTypes = types;
+        if ([panel runModal] != NSModalResponseOK) return 0;
+        NSMutableArray<NSString*>* paths = [NSMutableArray array];
+        for (NSURL* u in panel.URLs) [paths addObject:u.path];
+        panelAnswer = [paths componentsJoinedByString:@"\n"];
+        return (int32_t)strlen([panelAnswer UTF8String]);
+    }
+}
+
+int32_t winPickDate(const char* type, const char* value, char* buf, int32_t cap) noexcept {
+    if (cap > 0) return giveAnswer(buf, cap);
+    @autoreleasepool {
+        panelAnswer = nil;
+        NSString* kind = [NSString stringWithUTF8String:type ? type : "date"];
+        NSString* format = @"yyyy-MM-dd";
+        NSDatePickerElementFlags elements = NSDatePickerElementFlagYearMonthDay;
+        if ([kind isEqualToString:@"time"]) {
+            format = @"HH:mm";
+            elements = NSDatePickerElementFlagHourMinute;
+        } else if ([kind isEqualToString:@"datetime-local"]) {
+            format = @"yyyy-MM-dd'T'HH:mm";
+            elements = NSDatePickerElementFlagYearMonthDay | NSDatePickerElementFlagHourMinute;
+        } else if ([kind isEqualToString:@"month"]) {
+            format = @"yyyy-MM";
+        } else if ([kind isEqualToString:@"week"]) {
+            format = @"YYYY-'W'ww";
+        }
+        NSDateFormatter* f = [[NSDateFormatter alloc] init];
+        f.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+        f.dateFormat = format;
+        if ([kind isEqualToString:@"week"]) f.calendar = [NSCalendar calendarWithIdentifier:NSCalendarIdentifierISO8601];
+        NSDatePicker* picker = [[NSDatePicker alloc] initWithFrame:NSMakeRect(0, 0, 280, 160)];
+        picker.datePickerStyle = NSDatePickerStyleClockAndCalendar;
+        picker.datePickerElements = elements;
+        NSDate* start = [f dateFromString:[NSString stringWithUTF8String:value ? value : ""]];
+        picker.dateValue = start ?: [NSDate date];
+        [picker sizeToFit];
+        NSAlert* alert = [[NSAlert alloc] init];
+        alert.messageText = [kind isEqualToString:@"time"] ? @"Choose a time" : @"Choose a date";
+        alert.accessoryView = picker;
+        [alert addButtonWithTitle:@"OK"];
+        [alert addButtonWithTitle:@"Cancel"];
+        if ([alert runModal] != NSAlertFirstButtonReturn) return 0;
+        panelAnswer = [f stringFromDate:picker.dateValue];
+        return (int32_t)strlen([panelAnswer UTF8String]);
+    }
+}
+
+// The color panel's target: each change goes to the window that opened it.
+@interface CWColorTarget : NSObject
+@property(nonatomic, assign) int32_t window;
+@end
+
+@implementation CWColorTarget
+- (void)colorChanged:(NSColorPanel*)panel {
+    NSColor* c = [panel.color colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
+    CWWindow* owner = windows[@(self.window)];
+    if (c == nil || owner == nil) return;
+    NSString* hex = [NSString stringWithFormat:@"#%02x%02x%02x", (int)(c.redComponent * 255 + 0.5),
+                                               (int)(c.greenComponent * 255 + 0.5), (int)(c.blueComponent * 255 + 0.5)];
+    Event e = {0};
+    e.kind = EventKind::colorPicked;
+    e.text = strdup([hex UTF8String]);
+    push(owner, e);
+}
+@end
+
+static CWColorTarget* colorTarget = nil;
+
+void winPickColor(const char* color) noexcept {
+    @autoreleasepool {
+        if (colorTarget == nil) colorTarget = [[CWColorTarget alloc] init];
+        colorTarget.window = 0;
+        NSWindow* key = [NSApp keyWindow];
+        for (NSNumber* id in [windows allKeys]) {
+            CWWindow* w = windows[id];
+            if (w.window == key) colorTarget.window = w.ident;
+        }
+        NSColorPanel* panel = [NSColorPanel sharedColorPanel];
+        unsigned r = 0, g = 0, b = 0;
+        if (color != NULL && sscanf(color, "#%02x%02x%02x", &r, &g, &b) == 3) {
+            panel.color = [NSColor colorWithSRGBRed:r / 255.0 green:g / 255.0 blue:b / 255.0 alpha:1];
+        }
+        panel.continuous = YES;
+        [panel setTarget:colorTarget];
+        [panel setAction:@selector(colorChanged:)];
+        [panel orderFront:nil];
     }
 }
 

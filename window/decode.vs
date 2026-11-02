@@ -26,12 +26,15 @@ func pointerOf(id: int32) -> Pointer {
     let flags = winEventFlags(id)
     let kind: PointerKind = (flags & 255) == 1 ? .pen : .mouse
     let clicks = flags >> 8
-    return Pointer(
+    var p = Pointer(
         Position: Point(float32(winEventX(id)), float32(winEventY(id))),
         Kind: kind,
         Pressure: float32(winEventPressure(id)),
         Modifiers: modifiersFrom(winEventModifiers(id)),
         Clicks: clicks > 0 ? clicks : 1)
+    p.TiltX = float32(winEventTiltX(id)) * 90
+    p.TiltY = float32(winEventTiltY(id)) * 90
+    return p
 }
 
 // buttonOf is the current event's button.
@@ -79,6 +82,11 @@ func decode(id: int32, kind: int32) -> Event? {
     case 16: return .themeChanged(winEventCode(id) == 1 ? .dark : .light)
     case 17: return .modifiersChanged(modifiersFrom(winEventModifiers(id)))
     case 18: return .relativeMotion(Point(float32(winEventX(id)), float32(winEventY(id))))
+    case 19:
+        var paths: [string] = []
+        for line in eventText(id).split(separator: "\n") { paths.append(string(line)) }
+        return .filesDropped(paths, Point(float32(winEventX(id)), float32(winEventY(id))))
+    case 20: return .colorPicked(eventText(id))
     default: return nil
     }
 }

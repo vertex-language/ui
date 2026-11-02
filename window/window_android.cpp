@@ -741,6 +741,11 @@ void winFillRect(uint8_t* rgba, int32_t buf_w, int32_t buf_h, int32_t x, int32_t
 
 // The clipboard is the Java framework's; not reached from here yet.
 void winSetClipboardText(const char* text) { (void)text; }
+int32_t winPickFiles(int32_t, const char*, char*, int32_t) { return 0; }
+int32_t winPickDate(const char*, const char*, char*, int32_t) { return 0; }
+void winPickColor(const char*) {}
+double winEventTiltX(int32_t) { return 0; }
+double winEventTiltY(int32_t) { return 0; }
 
 int32_t winClipboardText(char* buf, int32_t cap) noexcept {
     if (buf != NULL && cap > 0)

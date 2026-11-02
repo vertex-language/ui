@@ -21,6 +21,7 @@ module;
 #pragma vertex framework("Cocoa")
 #pragma vertex framework("QuartzCore")
 #pragma vertex framework("CoreText")
+#pragma vertex framework("UniformTypeIdentifiers")
 #endif
 export module ui.window;
 
@@ -62,6 +63,8 @@ export namespace EventKind {
     constexpr int32_t themeChanged = 16;  // code: 0 light, 1 dark
     constexpr int32_t modifiersChanged = 17;  // modifiers
     constexpr int32_t relativeMotion = 18;  // x, y: how far the pointer moved, in points, while locked
+    constexpr int32_t filesDropped = 19;  // x, y: where; text: the paths, a line each
+    constexpr int32_t colorPicked = 20;  // text: the color, #rrggbb
 }
 
 // Modifier bits.
@@ -85,6 +88,8 @@ export int32_t winEventFlags(int32_t window) noexcept;
 export double winEventX(int32_t window) noexcept;
 export double winEventY(int32_t window) noexcept;
 export double winEventPressure(int32_t window) noexcept;
+export double winEventTiltX(int32_t window) noexcept;  // a pen's lean, -1 to 1
+export double winEventTiltY(int32_t window) noexcept;
 export double winEventTime(int32_t window) noexcept;
 export double winEventInterval(int32_t window) noexcept;
 
@@ -150,6 +155,14 @@ export void winFillRect(uint8_t* rgba, int32_t buf_w, int32_t buf_h, int32_t x, 
 // NUL, which may be more than cap; 0 where the clipboard holds no text.
 export void winSetClipboardText(const char* text) noexcept;
 export int32_t winClipboardText(char* buf, int32_t cap) noexcept;
+
+// The system's panels. Files and dates wait for the user, and answer the
+// text's length with the text in buf (paths a line each; a value as HTML
+// writes one), 0 where cancelled; asked with a cap of 0, they keep the answer
+// for the next call. The color panel stays open and sends colorPicked.
+export int32_t winPickFiles(int32_t multiple, const char* accept, char* buf, int32_t cap) noexcept;
+export int32_t winPickDate(const char* type, const char* value, char* buf, int32_t cap) noexcept;
+export void winPickColor(const char* color) noexcept;
 
 // The native objects, for a renderer binding its own swapchain.
 export uint64_t winNativeWindow(int32_t window) noexcept;

@@ -6,6 +6,7 @@ import (
     "image/draw"
     "ui/webview"
     "ui/window"
+    "web/dom"
 )
 
 var failures = 0
@@ -37,6 +38,40 @@ func countDark(pixels: [uint8], w: int32, r: draw.IRect) -> int {
         y += 1
     }
     return n
+}
+
+@MainActor
+func testPanels() {
+    print("Drops and panels")
+    let view = webview.WebView()
+    view.SetBounds(origin: window.Point(0, 0), size: window.Size(300, 200))
+    view.Page.LoadHTML("""
+    <body style="margin:0"><div id=zone style="width:300px;height:100px"></div><input id=c type=color value="#000000"></body>
+    """)
+    guard let zone = view.Page.QuerySelector("#zone"), let well = view.Page.QuerySelector("#c"), let doc = view.Page.Document else { return }
+    var names = 0
+    _ = doc.AddEventListener(zone, "dragover", handler: { e in e.PreventDefault() })
+    _ = doc.AddEventListener(zone, "drop", handler: { e in
+        if let d = e as? dom.DragEvent { names = d.Data.Files.count }
+        e.PreventDefault()
+    })
+    let result = view.Handle(window.Event.filesDropped(["/tmp/a.txt", "/tmp/b.txt"], window.Point(20, 20)))
+    check(names == 2, "files dropped from outside reach the page's drop (got \(names), \(result))")
+    var opened = ""
+    view.Page.OnPickColor { node, color in
+        opened = color
+        view.PickingColor(node)
+    }
+    _ = view.Page.BoundsOf(well)
+    if let b = view.Page.BoundsOf(well) {
+        let at = window.Point(b.X + 4, b.Y + 4)
+        let p = window.Pointer(Position: at, Kind: .mouse, Pressure: 0, Modifiers: window.Modifiers(), Clicks: 1)
+        _ = view.Handle(window.Event.pointerDown(p, .primary))
+        _ = view.Handle(window.Event.pointerUp(p, .primary))
+    }
+    check(opened == "#000000", "a color well asks for a color (got \(opened))")
+    _ = view.Handle(window.Event.colorPicked("#ff0000"))
+    check(view.Page.ValueOf(well) == "#ff0000", "and the panel's color is its value (got \(view.Page.ValueOf(well)))")
 }
 
 @MainActor
@@ -176,6 +211,7 @@ func near(a: float32, b: float32, tolerance: float32 = 0.5) -> bool {
 }
 
 func main() -> int32 {
+    testPanels()
     testView()
     if failures == 0 {
         print("ALL WEBVIEW CHECKS PASSED")

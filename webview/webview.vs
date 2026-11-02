@@ -38,6 +38,8 @@ public final class WebView {
     /// A folder each page from the network is recorded into, with what it
     /// refers to, for web/cmd/snapshot --archive to show offline.
     public var RecordInto: string? = nil
+    /// The color well the color panel is open for.
+    var pickingColor: html.Node? = nil
 
     public init(page: web.Page? = nil) {
         if let p = page {
@@ -53,6 +55,19 @@ public final class WebView {
         // has been. A host that handles navigation itself sets its own.
         Page.OnNavigate { target in self.Navigate(target) }
         Page.IsVisited { u in self.visited.contains(u) }
+        // A file input, a date and a color well ask the system's panels. A
+        // host with its own sets its own.
+        Page.OnPickFiles { node, multiple, accept in
+            let paths = window.PickFiles(multiple: multiple, accept: accept)
+            if !paths.isEmpty { self.Page.SetFiles(node, paths: paths) }
+        }
+        Page.OnPickDate { node, type, value in
+            if let v = window.PickDate(type: type, value: value) { self.Page.SetControlValue(node, v) }
+        }
+        Page.OnPickColor { node, color in
+            self.pickingColor = node
+            window.PickColor(color: color)
+        }
     }
 
     /// Where the view sits in the window, and how big it is, in points.
@@ -74,6 +89,14 @@ public final class WebView {
             Page.SetModifiers(pageModifiers(m))
             return .ignored
         }
+        if case .filesDropped(let paths, let at) = event {
+            return Page.DropFiles(paths, at: local(at)) ? .handled : .ignored
+        }
+        if case .colorPicked(let color) = event {
+            guard let node = pickingColor else { return .ignored }
+            Page.SetControlValue(node, color)
+            return .handled
+        }
         guard let input = Input(event) else { return .ignored }
         return Page.Handle(input)
     }
@@ -85,9 +108,9 @@ public final class WebView {
         case .pointerMoved(let p):
             return .pointerMoved(local(p.Position))
         case .pointerDown(let p, let button):
-            return .pointerDown(web.Pointer(local(p.Position), button: pageButton(button), clicks: p.Clicks, modifiers: pageModifiers(p.Modifiers)))
+            return .pointerDown(pagePointer(p, button))
         case .pointerUp(let p, let button):
-            return .pointerUp(web.Pointer(local(p.Position), button: pageButton(button), clicks: p.Clicks, modifiers: pageModifiers(p.Modifiers)))
+            return .pointerUp(pagePointer(p, button))
         case .pointerLeft:
             return .pointerLeft
         case .scrolled(let s):
@@ -105,6 +128,23 @@ public final class WebView {
         default:
             return nil
         }
+    }
+
+    /// The color well the next colorPicked is for, for a host
+    /// with its own OnPickColor.
+    public func PickingColor(node: html.Node) { pickingColor = node }
+
+    /// A window's pointer as the page's: a pen says it's one, how hard it
+    /// presses and how it leans.
+    func pagePointer(p: window.Pointer, button: window.PointerButton) -> web.Pointer {
+        var out = web.Pointer(local(p.Position), button: pageButton(button), clicks: p.Clicks, modifiers: pageModifiers(p.Modifiers))
+        if p.Kind == .pen {
+            out.Kind = "pen"
+            out.Pressure = p.Pressure
+            out.TiltX = p.TiltX
+            out.TiltY = p.TiltY
+        }
+        return out
     }
 
     /// The element under a point in the window, or nil.
