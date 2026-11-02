@@ -800,6 +800,16 @@ int32_t winCreate(const char* title, double width, double height, int32_t flags)
     }
 }
 
+// What still points back at a closing window lets go of it: AppKit can
+// send its view a pointer event (mouseExited, as the window goes) after
+// the window is gone, and the view's owner isn't retained.
+static void forgetOwner(NSArray* elements) {
+    for (CWAccessible* a in elements) {
+        a.owner = nil;
+        forgetOwner(a.kids);
+    }
+}
+
 void winClose(int32_t window) noexcept {
     @autoreleasepool {
         CWWindow* w = windowOf(window);
@@ -807,6 +817,14 @@ void winClose(int32_t window) noexcept {
             return;
         if (w.displayLink != nil)
             [w.displayLink invalidate];
+        CWView* view = w.view;
+        if (view.tracking != nil) {
+            [view removeTrackingArea:view.tracking];
+            view.tracking = nil;
+        }
+        forgetOwner(view.accessibleTop);
+        view.accessibleFocus = nil;
+        view.owner = nil;
         [w.window setDelegate:nil];
         [w.window close];
         close(w.readFd);
